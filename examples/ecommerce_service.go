@@ -8,6 +8,7 @@ import (
 	cerr "github.com/balcieren/connect-errors-go"
 )
 
+// Error codes for the Ecommerce Service.
 const (
 	ErrOutOfStock          cerr.ErrorCode = "ERROR_OUT_OF_STOCK"
 	ErrCartLimit           cerr.ErrorCode = "ERROR_CART_LIMIT"

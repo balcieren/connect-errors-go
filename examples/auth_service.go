@@ -8,6 +8,7 @@ import (
 	cerr "github.com/balcieren/connect-errors-go"
 )
 
+// Error codes for the Auth Service.
 const (
 	ErrInvalidCredentials cerr.ErrorCode = "ERROR_INVALID_CREDENTIALS"
 	ErrAccountLocked      cerr.ErrorCode = "ERROR_ACCOUNT_LOCKED"

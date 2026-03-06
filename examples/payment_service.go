@@ -9,6 +9,7 @@ import (
 	cerr "github.com/balcieren/connect-errors-go"
 )
 
+// Error codes for the Payment Service.
 const (
 	ErrInsufficientFunds cerr.ErrorCode = "ERROR_INSUFFICIENT_FUNDS"
 	ErrCardDeclined      cerr.ErrorCode = "ERROR_CARD_DECLINED"
