@@ -208,6 +208,7 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 
 	// Generate client-side IsXxx error matchers
 	g.P("// Client-side error matchers for checking errors returned by Connect RPC calls.")
+	g.P("// They check both metadata headers and protobuf details for compatibility.")
 	for _, e := range errors {
 		baseName := errorCodeToConstant(e.Code)
 		constName := "Err" + baseName
@@ -218,8 +219,16 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 		g.P("\tif !errors.As(err, &connectErr) {")
 		g.P("\t\treturn false")
 		g.P("\t}")
+		g.P("")
+		g.P("\t// 1. Check metadata headers (fast path)")
 		g.P("\tcode, ok := cerr.ExtractErrorCode(connectErr)")
-		g.P(fmt.Sprintf("\treturn ok && code == string(%s)", constName))
+		g.P(fmt.Sprintf("\tif ok && code == string(%s) {", constName))
+		g.P("\t\treturn true")
+		g.P("\t}")
+		g.P("")
+		g.P("\t// 2. Check protobuf error details")
+		g.P("\tinfo, ok := cerr.ExtractErrorInfo(connectErr)")
+		g.P(fmt.Sprintf("\treturn ok && info.Reason == string(%s)", constName))
 		g.P("}")
 		g.P()
 	}
