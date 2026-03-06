@@ -458,14 +458,34 @@ Preprocessing `ErrorCode` constants provided by the library:
 
 ---
 
-## Error Metadata
+## Error Metadata & Details
 
-Every error includes HTTP/gRPC metadata:
+Every error includes both HTTP/gRPC metadata headers and Protobuf `connect.ErrorDetail` messages:
+
+### Headers
 
 | Header         | Example           |
 | -------------- | ----------------- |
 | `x-error-code` | `ERROR_NOT_FOUND` |
 | `x-retryable`  | `true` / `false`  |
+
+### Protobuf Details
+
+- `google.rpc.ErrorInfo`: Attached to all errors. `Reason` contains the error code, `Domain` is `"connecterrors"`, and `Metadata` contains the template variables.
+- `google.rpc.RetryInfo`: Attached automatically when `Retryable` is true (zero delay).
+
+Use the provided extractors to safely parse details:
+
+```go
+if info, ok := cerr.ExtractErrorInfo(err); ok {
+    fmt.Println(info.Reason)     // "ERROR_NOT_FOUND"
+    fmt.Println(info.Metadata)   // map[string]string{"id": "123"}
+}
+
+if retry, ok := cerr.ExtractRetryInfo(err); ok {
+    fmt.Println("Is retryable!")
+}
+```
 
 ---
 
