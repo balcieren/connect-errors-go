@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 
 	"connectrpc.com/connect"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // ErrorCoder is the interface accepted by all error creation functions.
@@ -74,13 +76,37 @@ func SetHeaderKeys(errorCodeKey, retryableKey string) {
 }
 
 // setMeta attaches error code and retryable metadata to a Connect error.
-func setMeta(connectErr *connect.Error, e Error) {
+// It also attaches google.rpc.ErrorInfo and google.rpc.RetryInfo protobuf details.
+func setMeta(connectErr *connect.Error, e Error, data M) {
 	hk := getHeaderKeys()
 	connectErr.Meta().Set(hk.errorCode, string(e.Code))
 	if e.Retryable {
 		connectErr.Meta().Set(hk.retryable, "true")
 	} else {
 		connectErr.Meta().Set(hk.retryable, "false")
+	}
+
+	info := &errdetails.ErrorInfo{
+		Reason: string(e.Code),
+		Domain: "connecterrors",
+	}
+	if len(data) > 0 {
+		info.Metadata = make(map[string]string, len(data))
+		for k, v := range data {
+			info.Metadata[k] = v
+		}
+	}
+	if detail, err := connect.NewErrorDetail(info); err == nil {
+		connectErr.AddDetail(detail)
+	}
+
+	if e.Retryable {
+		retryInfo := &errdetails.RetryInfo{
+			RetryDelay: durationpb.New(0),
+		}
+		if detail, err := connect.NewErrorDetail(retryInfo); err == nil {
+			connectErr.AddDetail(detail)
+		}
 	}
 }
 
@@ -114,6 +140,40 @@ func ExtractErrorCode(connectErr *connect.Error) (string, bool) {
 	return code, true
 }
 
+// ExtractErrorInfo extracts a google.rpc.ErrorInfo detail from a connect.Error, if present.
+func ExtractErrorInfo(err error) (*errdetails.ErrorInfo, bool) {
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return nil, false
+	}
+	for _, detail := range connectErr.Details() {
+		val, err := detail.Value()
+		if err == nil {
+			if info, ok := val.(*errdetails.ErrorInfo); ok {
+				return info, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// ExtractRetryInfo extracts a google.rpc.RetryInfo detail from a connect.Error, if present.
+func ExtractRetryInfo(err error) (*errdetails.RetryInfo, bool) {
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return nil, false
+	}
+	for _, detail := range connectErr.Details() {
+		val, err := detail.Value()
+		if err == nil {
+			if info, ok := val.(*errdetails.RetryInfo); ok {
+				return info, true
+			}
+		}
+	}
+	return nil, false
+}
+
 // New creates a *connect.Error from a registered error code and template data.
 // It looks up the error definition in the Registry, formats the message template
 // with the provided data, and returns a Connect error with the appropriate status code.
@@ -137,7 +197,7 @@ func New(code ErrorCoder, data M) *connect.Error {
 
 	msg := FormatTemplate(e.MessageTpl, data)
 	connectErr := connect.NewError(e.ConnectCode, &CodedError{code: codeStr, msg: msg})
-	setMeta(connectErr, e)
+	setMeta(connectErr, e, data)
 
 	return connectErr
 }
@@ -172,7 +232,7 @@ func NewWithMessage(code ErrorCoder, customMsg string, data M) *connect.Error {
 
 	msg := FormatTemplate(customMsg, data)
 	connectErr := connect.NewError(e.ConnectCode, &CodedError{code: codeStr, msg: msg})
-	setMeta(connectErr, e)
+	setMeta(connectErr, e, data)
 
 	return connectErr
 }
@@ -210,7 +270,7 @@ func Wrap(code ErrorCoder, err error, data M) *connect.Error {
 	msg := FormatTemplate(e.MessageTpl, data)
 	wrapped := fmt.Errorf("%w: %w", &CodedError{code: codeStr, msg: msg}, err)
 	connectErr := connect.NewError(e.ConnectCode, wrapped)
-	setMeta(connectErr, e)
+	setMeta(connectErr, e, data)
 
 	return connectErr
 }
@@ -253,7 +313,7 @@ func Newf(code ErrorCoder, format string, args ...any) *connect.Error {
 
 	msg := fmt.Sprintf(format, args...)
 	connectErr := connect.NewError(e.ConnectCode, &CodedError{code: codeStr, msg: msg})
-	setMeta(connectErr, e)
+	setMeta(connectErr, e, nil)
 
 	return connectErr
 }

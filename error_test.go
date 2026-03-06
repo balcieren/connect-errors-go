@@ -244,8 +244,9 @@ func TestNewfCodedError(t *testing.T) {
 
 func TestWithDetails(t *testing.T) {
 	connectErr := connecterrors.New(connecterrors.ErrInvalidArgument, connecterrors.M{"reason": "bad"})
-	if len(connectErr.Details()) != 0 {
-		t.Fatal("expected no details initially")
+	baseLen := len(connectErr.Details())
+	if baseLen != 1 {
+		t.Fatalf("expected 1 detail initially (ErrorInfo), got %d", baseLen)
 	}
 
 	// WithDetails with nil should not panic
@@ -253,7 +254,7 @@ func TestWithDetails(t *testing.T) {
 	if result != connectErr {
 		t.Error("expected same error returned for chaining")
 	}
-	if len(connectErr.Details()) != 0 {
+	if len(connectErr.Details()) != baseLen {
 		t.Error("nil detail should not be added")
 	}
 }
@@ -389,6 +390,7 @@ func TestCodedErrorErrorCodeDeprecated(t *testing.T) {
 
 func TestWithMultipleDetails(t *testing.T) {
 	connectErr := connecterrors.New(connecterrors.ErrInvalidArgument, connecterrors.M{"reason": "bad"})
+	baseLen := len(connectErr.Details())
 
 	// Use real proto messages for details
 	d1, err := connect.NewErrorDetail(&emptypb.Empty{})
@@ -402,8 +404,51 @@ func TestWithMultipleDetails(t *testing.T) {
 
 	connectErr = connecterrors.WithDetails(connectErr, d1, d2)
 
-	if len(connectErr.Details()) != 2 {
-		t.Errorf("len(Details) = %d, want 2", len(connectErr.Details()))
+	expectedLen := baseLen + 2
+	if len(connectErr.Details()) != expectedLen {
+		t.Errorf("len(Details) = %d, want %d", len(connectErr.Details()), expectedLen)
+	}
+}
+
+func TestExtractErrorInfo(t *testing.T) {
+	connectErr := connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{"id": "1"})
+	info, ok := connecterrors.ExtractErrorInfo(connectErr)
+	if !ok {
+		t.Fatal("expected ExtractErrorInfo to return true")
+	}
+	if info.Reason != string(connecterrors.ErrNotFound) {
+		t.Errorf("Reason = %q, want %q", info.Reason, connecterrors.ErrNotFound)
+	}
+	if info.Domain != "connecterrors" {
+		t.Errorf("Domain = %q, want connecterrors", info.Domain)
+	}
+	if info.Metadata["id"] != "1" {
+		t.Errorf("Metadata['id'] = %q, want '1'", info.Metadata["id"])
+	}
+
+	// Test non-connect error
+	_, ok = connecterrors.ExtractErrorInfo(errors.New("plain err"))
+	if ok {
+		t.Error("expected false for plain error")
+	}
+}
+
+func TestExtractRetryInfo(t *testing.T) {
+	// ErrUnavailable is retryable
+	connectErr := connecterrors.New(connecterrors.ErrUnavailable, nil)
+	info, ok := connecterrors.ExtractRetryInfo(connectErr)
+	if !ok {
+		t.Fatal("expected ExtractRetryInfo to return true for ErrUnavailable")
+	}
+	if info.RetryDelay == nil || info.RetryDelay.Seconds != 0 {
+		t.Errorf("unexpected RetryDelay: %v", info.RetryDelay)
+	}
+
+	// ErrNotFound is not retryable
+	connectErr2 := connecterrors.New(connecterrors.ErrNotFound, nil)
+	_, ok = connecterrors.ExtractRetryInfo(connectErr2)
+	if ok {
+		t.Error("expected false for ExtractRetryInfo on ErrNotFound")
 	}
 }
 
