@@ -11,7 +11,7 @@ A proto-first error handling package for [Connect RPC](https://connectrpc.com). 
 
 ```protobuf
 // Define in your .proto file
-option (errors.v1.file_error) = {
+option (errors.v1.rpc_error) = {
   error_code: "ERROR_USER_NOT_FOUND"
   message: "User '{{id}}' not found"
   status_code: NOT_FOUND
@@ -94,37 +94,15 @@ plugins:
 ```bash
 buf dep update
 ```
-
 ## Step 2: Define Errors in Proto
 
-Errors can be defined at **two levels**:
-
-- **File-level** (`errors.v1.file_error`) — shared across all services, defined once
-- **Method-level** (`errors.v1.rpc_error`) — specific to a single RPC
+Errors are defined at the **method level** using the `errors.v1.rpc_error` option:
 
 ```protobuf
 syntax = "proto3";
 package user.v1;
 
 import "errors/v1/error.proto";
-
-// ── File-level: shared errors, defined once ──────────────────
-option (errors.v1.file_error) = {
-  error_code: "ERROR_USER_NOT_FOUND"
-  message: "User '{{id}}' not found"
-  status_code: NOT_FOUND
-};
-option (errors.v1.file_error) = {
-  error_code: "ERROR_UNAUTHORIZED"
-  message: "Authentication required"
-  status_code: UNAUTHENTICATED
-};
-option (errors.v1.file_error) = {
-  error_code: "ERROR_RATE_LIMITED"
-  message: "Too many requests, try again later"
-  status_code: RESOURCE_EXHAUSTED
-  retryable: true
-};
 
 service UserService {
   rpc GetUser(GetUserRequest) returns (User) {
@@ -154,7 +132,7 @@ service UserService {
 }
 ```
 
-> File-level and method-level errors are merged and deduplicated during generation.
+> Errors with the same code across different methods are deduplicated during generation.
 
 Each `{{placeholder}}` in the message becomes a **struct field** in the generated constructor.
 
