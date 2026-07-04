@@ -220,7 +220,7 @@ func TestNewWithRetry(t *testing.T) {
 
 func TestWithFieldViolation(t *testing.T) {
 	err := connecterrors.New(connecterrors.ErrInvalidArgument, connecterrors.M{"reason": "bad"})
-	connecterrors.WithFieldViolation(err, "email", "already registered")
+	_ = connecterrors.WithFieldViolation(err, "email", "already registered")
 
 	found := false
 	for _, detail := range err.Details() {
@@ -275,7 +275,8 @@ func TestNewCtx(t *testing.T) {
 	})
 	defer connecterrors.SetContextExtractor(func(context.Context) connecterrors.M { return nil })
 
-	ctx := context.WithValue(context.Background(), "test", true)
+	type contextKey string
+	ctx := context.WithValue(context.Background(), contextKey("test"), true)
 	err := connecterrors.NewCtx(ctx, connecterrors.ErrNotFound, connecterrors.M{"id": "42"})
 
 	info, ok := connecterrors.ExtractErrorInfo(err)
@@ -716,7 +717,7 @@ func TestErrorLogger(t *testing.T) {
 	})
 	defer connecterrors.SetErrorLogger(nil)
 
-	connecterrors.New(connecterrors.ErrNotFound, nil)
+	_ = connecterrors.New(connecterrors.ErrNotFound, nil)
 
 	if loggedCode != string(connecterrors.ErrNotFound) {
 		t.Errorf("expected logger to be called with code ERROR_NOT_FOUND, got %q", loggedCode)
@@ -736,7 +737,7 @@ func TestErrorLoggerRetryable(t *testing.T) {
 	})
 	defer connecterrors.SetErrorLogger(nil)
 
-	connecterrors.New(connecterrors.ErrUnavailable, nil)
+	_ = connecterrors.New(connecterrors.ErrUnavailable, nil)
 
 	if loggedRetryable != true {
 		t.Error("expected retryable to be true for ErrUnavailable")
@@ -944,7 +945,7 @@ func TestConcurrentSetErrorLoggerAndNew(t *testing.T) {
 
 	// Reader goroutine: repeatedly creates errors (reads logger)
 	for i := 0; i < 1000; i++ {
-		connecterrors.New(connecterrors.ErrNotFound, nil)
+		_ = connecterrors.New(connecterrors.ErrNotFound, nil)
 	}
 
 	<-done

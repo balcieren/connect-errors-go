@@ -138,7 +138,7 @@ func (b *ErrorBuilder) Build() *connect.Error {
 
 	// Add field violations
 	for _, v := range b.violations {
-		WithFieldViolation(connectErr, v.field, v.description)
+		_ = WithFieldViolation(connectErr, v.field, v.description)
 	}
 
 	// Add extra details

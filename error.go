@@ -465,6 +465,9 @@ func IsRetryable(codeOrErr any) bool {
 			return false
 		}
 		return e.Retryable
+	case *connect.Error:
+		hk := GetHeaderKeys()
+		return v.Meta().Get(hk.retryable) == "true"
 	case error:
 		var connectErr *connect.Error
 		if !errors.As(v, &connectErr) {
@@ -472,9 +475,6 @@ func IsRetryable(codeOrErr any) bool {
 		}
 		hk := GetHeaderKeys()
 		return connectErr.Meta().Get(hk.retryable) == "true"
-	case *connect.Error:
-		hk := GetHeaderKeys()
-		return v.Meta().Get(hk.retryable) == "true"
 	}
 	return false
 }
