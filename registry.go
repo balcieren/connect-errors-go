@@ -5,6 +5,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"connectrpc.com/connect"
 )
@@ -73,6 +74,10 @@ type Error struct {
 
 	// Retryable indicates whether the client should retry the request.
 	Retryable bool
+
+	// RetryDelay specifies the delay to use in google.rpc.RetryInfo.
+	// If zero, the default (zero delay) is used. Only meaningful when Retryable is true.
+	RetryDelay time.Duration
 }
 
 // writeMu protects Registry writes. Reads are lock-free via atomic.Value.
@@ -87,25 +92,25 @@ var registryVal atomic.Value
 var defaultErrors = map[ErrorCode]Error{
 	ErrNotFound: {
 		Code:        ErrNotFound,
-		MessageTpl:  "Resource '{{id}}' not found",
+		MessageTpl:  "Resource not found",
 		ConnectCode: connect.CodeNotFound,
 		Retryable:   false,
 	},
 	ErrInvalidArgument: {
 		Code:        ErrInvalidArgument,
-		MessageTpl:  "Invalid argument: {{reason}}",
+		MessageTpl:  "Invalid argument",
 		ConnectCode: connect.CodeInvalidArgument,
 		Retryable:   false,
 	},
 	ErrAlreadyExists: {
 		Code:        ErrAlreadyExists,
-		MessageTpl:  "Resource '{{id}}' already exists",
+		MessageTpl:  "Resource already exists",
 		ConnectCode: connect.CodeAlreadyExists,
 		Retryable:   false,
 	},
 	ErrPermissionDenied: {
 		Code:        ErrPermissionDenied,
-		MessageTpl:  "Permission denied: {{reason}}",
+		MessageTpl:  "Permission denied",
 		ConnectCode: connect.CodePermissionDenied,
 		Retryable:   false,
 	},
@@ -123,37 +128,37 @@ var defaultErrors = map[ErrorCode]Error{
 	},
 	ErrUnavailable: {
 		Code:        ErrUnavailable,
-		MessageTpl:  "Service temporarily unavailable",
+		MessageTpl:  "Service unavailable",
 		ConnectCode: connect.CodeUnavailable,
 		Retryable:   true,
 	},
 	ErrDeadlineExceeded: {
 		Code:        ErrDeadlineExceeded,
-		MessageTpl:  "Request timed out",
+		MessageTpl:  "Deadline exceeded",
 		ConnectCode: connect.CodeDeadlineExceeded,
 		Retryable:   true,
 	},
 	ErrResourceExhausted: {
 		Code:        ErrResourceExhausted,
-		MessageTpl:  "Resource exhausted: {{reason}}",
+		MessageTpl:  "Resource exhausted",
 		ConnectCode: connect.CodeResourceExhausted,
 		Retryable:   true,
 	},
 	ErrFailedPrecondition: {
 		Code:        ErrFailedPrecondition,
-		MessageTpl:  "Failed precondition: {{reason}}",
+		MessageTpl:  "Failed precondition",
 		ConnectCode: connect.CodeFailedPrecondition,
 		Retryable:   false,
 	},
 	ErrAborted: {
 		Code:        ErrAborted,
-		MessageTpl:  "Operation aborted: {{reason}}",
+		MessageTpl:  "Operation aborted",
 		ConnectCode: connect.CodeAborted,
 		Retryable:   true,
 	},
 	ErrOutOfRange: {
 		Code:        ErrOutOfRange,
-		MessageTpl:  "Value out of range: {{reason}}",
+		MessageTpl:  "Value out of range",
 		ConnectCode: connect.CodeOutOfRange,
 		Retryable:   false,
 	},
@@ -165,7 +170,7 @@ var defaultErrors = map[ErrorCode]Error{
 	},
 	ErrCanceled: {
 		Code:        ErrCanceled,
-		MessageTpl:  "Operation canceled",
+		MessageTpl:  "RPC canceled",
 		ConnectCode: connect.CodeCanceled,
 		Retryable:   false,
 	},
@@ -189,6 +194,9 @@ var defaultErrors = map[ErrorCode]Error{
 //	    Retryable:   false,
 //	})
 func Register(err Error) {
+	if err.Code == "" {
+		return
+	}
 	writeMu.Lock()
 	defer writeMu.Unlock()
 	current := loadRegistry()
@@ -211,7 +219,9 @@ func RegisterAll(errs []Error) {
 		updated[k] = v
 	}
 	for _, err := range errs {
-		updated[err.Code] = err
+		if err.Code != "" {
+			updated[err.Code] = err
+		}
 	}
 	registryVal.Store(updated)
 }
@@ -248,6 +258,15 @@ func Codes() []string {
 	}
 	sort.Strings(codes)
 	return codes
+}
+
+// ResetRegistry restores the registry to the default error definitions.
+// This is primarily useful for testing: it clears any custom registrations
+// and reloads the built-in defaults. Safe for concurrent use.
+func ResetRegistry() {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	registryVal.Store(defaultErrors)
 }
 
 // loadRegistry returns the current immutable registry snapshot.
