@@ -1,4 +1,6 @@
 version: v2
 modules:
   - path: proto
-    name: buf.build/balcieren/connect-errors
+    name: buf.build/balcieren/errors
+deps:
+  - buf.build/googleapis/googleapis

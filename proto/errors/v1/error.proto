@@ -1,43 +1,23 @@
 syntax = "proto3";
 
-package connecterrors.v1;
+package errors.v1;
 
-option go_package = "github.com/balcieren/connect-errors-go/proto/connecterrors;connecterrorspb";
+option go_package = "github.com/balcieren/connect-errors-go/proto/errors;errorspb";
 
 import "google/protobuf/descriptor.proto";
-
-// Code defines the standard Connect RPC status codes.
-enum Code {
-  CODE_UNSPECIFIED = 0;
-  CODE_CANCELED = 1;
-  CODE_UNKNOWN = 2;
-  CODE_INVALID_ARGUMENT = 3;
-  CODE_DEADLINE_EXCEEDED = 4;
-  CODE_NOT_FOUND = 5;
-  CODE_ALREADY_EXISTS = 6;
-  CODE_PERMISSION_DENIED = 7;
-  CODE_RESOURCE_EXHAUSTED = 8;
-  CODE_FAILED_PRECONDITION = 9;
-  CODE_ABORTED = 10;
-  CODE_OUT_OF_RANGE = 11;
-  CODE_UNIMPLEMENTED = 12;
-  CODE_INTERNAL = 13;
-  CODE_UNAVAILABLE = 14;
-  CODE_DATA_LOSS = 15;
-  CODE_UNAUTHENTICATED = 16;
-}
+import "google/rpc/code.proto";
 
 // ErrorDef defines a single error that can be attached to an RPC method.
 // It carries all metadata needed for code generation and runtime error handling.
 message ErrorDef {
   // Unique error code identifier, e.g. "ERROR_NOT_FOUND".
-  string code = 1;
+  string error_code = 1;
 
   // Message template with {{placeholder}} syntax, e.g. "User '{{id}}' not found".
   string message = 2;
 
-  // Connect RPC status code.
-  Code connect_code = 3;
+  // RPC status code (google.rpc.Code).
+  google.rpc.Code status_code = 3;
 
   // Whether the client should retry the request on this error.
   bool retryable = 4;
@@ -50,11 +30,11 @@ message ErrorDef {
 // Extend MethodOptions to attach error definitions to individual RPC methods.
 // This allows errors to be defined declaratively in proto files and code-generated.
 extend google.protobuf.MethodOptions {
-  repeated ErrorDef connect_error = 50001;
+  repeated ErrorDef rpc_error = 50001;
 }
 
 // Extend FileOptions to attach shared error definitions at the file level.
 // These are available to all services in the file and avoid repetition.
 extend google.protobuf.FileOptions {
-  repeated ErrorDef error = 50002;
+  repeated ErrorDef file_error = 50002;
 }
