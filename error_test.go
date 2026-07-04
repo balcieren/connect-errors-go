@@ -825,7 +825,7 @@ func TestMatchesErrorNil(t *testing.T) {
 func TestMatchError(t *testing.T) {
 	err := connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{"id": "42"})
 
-	result, ok := connecterrors.MatchError[string](err, []connecterrors.Matcher[string]{
+	result, ok := connecterrors.MatchError(err, []connecterrors.Matcher[string]{
 		{Code: connecterrors.ErrNotFound, Fn: func() string { return "not found" }},
 		{Code: connecterrors.ErrInvalidArgument, Fn: func() string { return "bad input" }},
 	})
@@ -840,7 +840,7 @@ func TestMatchError(t *testing.T) {
 func TestMatchErrorNoMatch(t *testing.T) {
 	err := connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{"id": "42"})
 
-	_, ok := connecterrors.MatchError[string](err, []connecterrors.Matcher[string]{
+	_, ok := connecterrors.MatchError(err, []connecterrors.Matcher[string]{
 		{Code: connecterrors.ErrInternal, Fn: func() string { return "internal" }},
 	})
 	if ok {
@@ -849,7 +849,7 @@ func TestMatchErrorNoMatch(t *testing.T) {
 }
 
 func TestMatchErrorNonConnect(t *testing.T) {
-	_, ok := connecterrors.MatchError[string](errors.New("plain"), []connecterrors.Matcher[string]{
+	_, ok := connecterrors.MatchError(errors.New("plain"), []connecterrors.Matcher[string]{
 		{Code: connecterrors.ErrNotFound, Fn: func() string { return "not found" }},
 	})
 	if ok {
@@ -861,7 +861,7 @@ func TestMatchErrorDeterministicOrder(t *testing.T) {
 	err := connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{"id": "42"})
 
 	// First matcher should win even if multiple could match
-	result, ok := connecterrors.MatchError[string](err, []connecterrors.Matcher[string]{
+	result, ok := connecterrors.MatchError(err, []connecterrors.Matcher[string]{
 		{Code: connecterrors.ErrNotFound, Fn: func() string { return "first" }},
 		{Code: connecterrors.ErrNotFound, Fn: func() string { return "second" }},
 	})
