@@ -23,6 +23,7 @@ func TestRegistryDefaultEntries(t *testing.T) {
 		connecterrors.ErrResourceExhausted,
 		connecterrors.ErrFailedPrecondition,
 		connecterrors.ErrAborted,
+		connecterrors.ErrOutOfRange,
 		connecterrors.ErrUnimplemented,
 		connecterrors.ErrCanceled,
 		connecterrors.ErrDataLoss,

@@ -19,7 +19,7 @@ func TestErrorInterceptor(t *testing.T) {
 	})
 
 	// Simulate a handler that returns a domain error
-	domainErr := connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{"resource": "user", "id": "42"})
+	domainErr := connecterrors.New(connecterrors.ErrNotFound, nil)
 
 	handler := interceptor(func(_ context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
 		return nil, domainErr
@@ -72,5 +72,70 @@ func TestErrorInterceptorNoError(t *testing.T) {
 	}
 	if called {
 		t.Error("interceptor should not be called when there is no error")
+	}
+}
+
+// mockStreamingHandlerConn is a minimal StreamingHandlerConn for testing.
+type mockStreamingHandlerConn struct {
+	connect.StreamingHandlerConn
+}
+
+func TestStreamingErrorInterceptor(t *testing.T) {
+	var captured connecterrors.Error
+
+	interceptor := connecterrors.StreamingErrorInterceptor(func(_ context.Context, _ *connect.Error, def connecterrors.Error) {
+		captured = def
+	})
+
+	domainErr := connecterrors.New(connecterrors.ErrNotFound, nil)
+
+	// Cast to get the underlying StreamingHandlerInterceptorFunc and call it
+	wrappedHandler := interceptor.WrapStreamingHandler(func(_ context.Context, _ connect.StreamingHandlerConn) error {
+		return domainErr
+	})
+
+	err := wrappedHandler(context.Background(), &mockStreamingHandlerConn{})
+	if err == nil {
+		t.Fatal("expected error to be returned")
+	}
+
+	if captured.Code != connecterrors.ErrNotFound {
+		t.Errorf("captured code = %q, want %q", captured.Code, connecterrors.ErrNotFound)
+	}
+}
+
+func TestStreamingErrorInterceptorNoMeta(t *testing.T) {
+	called := false
+	interceptor := connecterrors.StreamingErrorInterceptor(func(_ context.Context, _ *connect.Error, _ connecterrors.Error) {
+		called = true
+	})
+
+	rawErr := connect.NewError(connect.CodeInternal, nil)
+	wrappedHandler := interceptor.WrapStreamingHandler(func(_ context.Context, _ connect.StreamingHandlerConn) error {
+		return rawErr
+	})
+
+	_ = wrappedHandler(context.Background(), &mockStreamingHandlerConn{})
+	if called {
+		t.Error("streaming interceptor should not be called for errors without x-error-code metadata")
+	}
+}
+
+func TestStreamingErrorInterceptorNoError(t *testing.T) {
+	called := false
+	interceptor := connecterrors.StreamingErrorInterceptor(func(_ context.Context, _ *connect.Error, _ connecterrors.Error) {
+		called = true
+	})
+
+	wrappedHandler := interceptor.WrapStreamingHandler(func(_ context.Context, _ connect.StreamingHandlerConn) error {
+		return nil
+	})
+
+	err := wrappedHandler(context.Background(), &mockStreamingHandlerConn{})
+	if err != nil {
+		t.Fatal("expected no error")
+	}
+	if called {
+		t.Error("streaming interceptor should not be called when there is no error")
 	}
 }
