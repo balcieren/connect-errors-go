@@ -27,8 +27,8 @@ type ProblemDetails struct {
 	Instance string `json:"instance,omitempty"`
 }
 
-// connectCodeToHTTPStatus maps Connect status codes to HTTP status codes.
-var connectCodeToHTTPStatus = map[connect.Code]int{
+// statusCodeToHTTPStatus maps Connect status codes to HTTP status codes.
+var statusCodeToHTTPStatus = map[connect.Code]int{
 	connect.CodeCanceled:           499,
 	connect.CodeUnknown:            500,
 	connect.CodeInvalidArgument:    400,
@@ -68,7 +68,7 @@ func ToProblemDetails(err error) *ProblemDetails {
 		Status: 500,
 	}
 
-	if status, ok := connectCodeToHTTPStatus[connectErr.Code()]; ok {
+	if status, ok := statusCodeToHTTPStatus[connectErr.Code()]; ok {
 		pd.Status = status
 	}
 
