@@ -42,9 +42,7 @@ type AuthService struct{}
 // Login authenticates a user with email and password.
 func (s *AuthService) Login(ctx context.Context, email, password string) (string, error) {
 	if email == "" || password == "" {
-		return "", cerr.New(cerr.ErrInvalidArgument, cerr.M{
-			"reason": "email and password are required",
-		})
+		return "", cerr.NewWithMessage(cerr.ErrInvalidArgument, "email and password are required", nil)
 	}
 
 	// Simulate authentication check
@@ -60,9 +58,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 // RefreshToken refreshes an authentication token.
 func (s *AuthService) RefreshToken(ctx context.Context, token string) (string, error) {
 	if token == "" {
-		return "", cerr.New(cerr.ErrInvalidArgument, cerr.M{
-			"reason": "token is required",
-		})
+		return "", cerr.NewWithMessage(cerr.ErrInvalidArgument, "token is required", nil)
 	}
 
 	if token == "expired" {

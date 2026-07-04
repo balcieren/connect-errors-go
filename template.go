@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-var templateRegex = regexp.MustCompile(`\{\{(\w+)\}\}`)
+var templateRegex = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
 
 // templatePart represents a segment of a parsed template.
 // Each part has a literal prefix and an optional placeholder field name.

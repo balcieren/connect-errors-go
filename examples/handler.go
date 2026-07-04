@@ -30,16 +30,12 @@ type UserHandler struct {
 // GetUser retrieves a user by ID.
 func (h *UserHandler) GetUser(ctx context.Context, id string) (*User, error) {
 	if id == "" {
-		return nil, cerr.New(cerr.ErrInvalidArgument, cerr.M{
-			"reason": "id is required",
-		})
+		return nil, cerr.NewWithMessage(cerr.ErrInvalidArgument, "id is required", nil)
 	}
 
 	user, err := h.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, cerr.Wrap(cerr.ErrNotFound, err, cerr.M{
-			"id": id,
-		})
+		return nil, cerr.NewWithMessage(cerr.ErrNotFound, "User '{{id}}' not found", cerr.M{"id": id})
 	}
 
 	return user, nil
@@ -49,14 +45,12 @@ func (h *UserHandler) GetUser(ctx context.Context, id string) (*User, error) {
 func (h *UserHandler) CreateUser(ctx context.Context, email, name string) (*User, error) {
 	exists, _ := h.repo.EmailExists(ctx, email)
 	if exists {
-		return nil, cerr.New(cerr.ErrAlreadyExists, cerr.M{
-			"id": email,
-		})
+		return nil, cerr.NewWithMessage(cerr.ErrAlreadyExists, "Email '{{email}}' already exists", cerr.M{"email": email})
 	}
 
 	user, err := h.repo.Create(ctx, email, name)
 	if err != nil {
-		return nil, cerr.Wrap(cerr.ErrInternal, err, cerr.M{})
+		return nil, cerr.Wrap(cerr.ErrInternal, err, nil)
 	}
 
 	return user, nil

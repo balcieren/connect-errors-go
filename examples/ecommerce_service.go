@@ -44,9 +44,7 @@ type EcommerceService struct{}
 // AddToCart adds a product to the shopping cart.
 func (s *EcommerceService) AddToCart(ctx context.Context, productID string, quantity int) error {
 	if productID == "" {
-		return cerr.New(cerr.ErrInvalidArgument, cerr.M{
-			"reason": "product_id is required",
-		})
+		return cerr.NewWithMessage(cerr.ErrInvalidArgument, "product_id is required", nil)
 	}
 
 	if quantity > 100 {

@@ -50,6 +50,55 @@ func ErrorInterceptor(fn ErrorInterceptorFunc) connect.UnaryInterceptorFunc {
 	}
 }
 
+// StreamingHandlerInterceptorFunc is a simple Interceptor implementation that only
+// wraps streaming handler RPCs. It has no effect on unary RPCs or streaming clients.
+type StreamingHandlerInterceptorFunc func(connect.StreamingHandlerFunc) connect.StreamingHandlerFunc
+
+// WrapUnary implements [connect.Interceptor] by passing through unchanged.
+func (s StreamingHandlerInterceptorFunc) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return next
+}
+
+// WrapStreamingClient implements [connect.Interceptor] by passing through unchanged.
+func (s StreamingHandlerInterceptorFunc) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+// WrapStreamingHandler implements [connect.Interceptor] by applying the interceptor function.
+func (s StreamingHandlerInterceptorFunc) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return s(next)
+}
+
+// StreamingErrorInterceptor is the streaming counterpart of ErrorInterceptor.
+// It hooks into streaming RPC error responses and invokes the callback when
+// a handler returns a *connect.Error with a registered domain error code.
+//
+// Example:
+//
+//	interceptor := cerr.StreamingErrorInterceptor(func(ctx context.Context, err *connect.Error, def cerr.Error) {
+//	    slog.ErrorContext(ctx, "streaming rpc error", "code", def.Code)
+//	})
+//
+//	mux.Handle(userv1connect.NewUserServiceHandler(svc,
+//	    connect.WithInterceptors(interceptor),
+//	))
+func StreamingErrorInterceptor(fn ErrorInterceptorFunc) connect.Interceptor {
+	return StreamingHandlerInterceptorFunc(func(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+		return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+			err := next(ctx, conn)
+			if err != nil {
+				var connectErr *connect.Error
+				if ok := asConnectError(err, &connectErr); ok {
+					if def, found := FromError(connectErr); found {
+						fn(ctx, connectErr, def)
+					}
+				}
+			}
+			return err
+		}
+	})
+}
+
 // asConnectError attempts to extract a *connect.Error from err using errors.As,
 // which correctly handles wrapped errors.
 func asConnectError(err error, target **connect.Error) bool {

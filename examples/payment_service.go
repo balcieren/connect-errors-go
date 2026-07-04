@@ -45,9 +45,7 @@ type PaymentService struct{}
 // ProcessPayment processes a payment.
 func (s *PaymentService) ProcessPayment(ctx context.Context, orderID string, amount float64, cardLast4 string) error {
 	if amount <= 0 {
-		return cerr.New(cerr.ErrInvalidArgument, cerr.M{
-			"reason": "amount must be positive",
-		})
+		return cerr.NewWithMessage(cerr.ErrInvalidArgument, "amount must be positive", nil)
 	}
 
 	balance := 50.0

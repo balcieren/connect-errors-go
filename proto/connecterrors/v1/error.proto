@@ -41,6 +41,10 @@ message ErrorDef {
 
   // Whether the client should retry the request on this error.
   bool retryable = 4;
+
+  // Retry delay in milliseconds. If set, google.rpc.RetryInfo will use this delay
+  // instead of the default zero delay. Only meaningful when retryable is true.
+  optional int64 retry_delay_ms = 5;
 }
 
 // Extend MethodOptions to attach error definitions to individual RPC methods.
