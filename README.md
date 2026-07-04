@@ -11,10 +11,10 @@ A proto-first error handling package for [Connect RPC](https://connectrpc.com). 
 
 ```protobuf
 // Define in your .proto file
-option (connecterrors.v1.error) = {
-  code: "ERROR_USER_NOT_FOUND"
+option (errors.v1.file_error) = {
+  error_code: "ERROR_USER_NOT_FOUND"
   message: "User '{{id}}' not found"
-  connect_code: CODE_NOT_FOUND
+  status_code: NOT_FOUND
 };
 ```
 
@@ -37,13 +37,13 @@ return nil, userv1.NewErrUserNotFound(userv1.UserNotFoundParams{
 | 📝 **Template Messages**      | `{{placeholder}}` → struct fields, validated at runtime        |
 | 🔄 **Retryable Errors**       | Mark errors as retryable with custom retry delays in proto     |
 | 🪝 **Interceptors**           | Unary + streaming hooks for logging, metrics, and tracing      |
-| ✅ **errors.Is / errors.As**  | Idiomatic Go error matching via `ErrorCode` & `CodedError`    |
+| ✅ **errors.Is / errors.As**  | Idiomatic Go error matching via `ErrorCode` & `CodedError`     |
 | 🔀 **Error Matching**         | `MatchesError` + `MatchError` (switch-like, deterministic)     |
 | 🔨 **Error Builder**          | Chainable API: `.WithFieldViolation().WithRetryDelay().Build()` |
 | 🌐 **RFC 7807**               | `ToProblemDetails()` for REST/HTTP adapters                    |
-| 🏷️ **Configurable Domain**    | `SetDomain("myapp")` for `google.rpc.ErrorInfo`               |
+| 🏷️ **Configurable Domain**    | `SetDomain("myapp")` for `google.rpc.ErrorInfo`                |
 | 🧩 **Context-aware**          | `NewCtx()` + `SetContextExtractor()` for trace IDs, etc.       |
-| 📊 **Customizable Logging**   | `SetErrorLogger()` + `SetValidationLogger()` for any log package |
+| 📊 **Customizable Logging**   | `SetErrorLogger()` + `SetValidationLogger()` for any log pkg   |
 
 ## Quick Start
 
@@ -62,7 +62,7 @@ version: v2
 modules:
   - path: proto
 deps:
-  - buf.build/balcieren/connect-errors
+  - buf.build/balcieren/errors
   - buf.build/protocolbuffers/wellknowntypes
 ```
 
@@ -99,56 +99,56 @@ buf dep update
 
 Errors can be defined at **two levels**:
 
-- **File-level** (`connecterrors.v1.error`) — shared across all services, defined once
-- **Method-level** (`connecterrors.v1.connect_error`) — specific to a single RPC
+- **File-level** (`errors.v1.file_error`) — shared across all services, defined once
+- **Method-level** (`errors.v1.rpc_error`) — specific to a single RPC
 
 ```protobuf
 syntax = "proto3";
 package user.v1;
 
-import "connecterrors/v1/error.proto";
+import "errors/v1/error.proto";
 
 // ── File-level: shared errors, defined once ──────────────────
-option (connecterrors.v1.error) = {
-  code: "ERROR_USER_NOT_FOUND"
+option (errors.v1.file_error) = {
+  error_code: "ERROR_USER_NOT_FOUND"
   message: "User '{{id}}' not found"
-  connect_code: CODE_NOT_FOUND
+  status_code: NOT_FOUND
 };
-option (connecterrors.v1.error) = {
-  code: "ERROR_UNAUTHORIZED"
+option (errors.v1.file_error) = {
+  error_code: "ERROR_UNAUTHORIZED"
   message: "Authentication required"
-  connect_code: CODE_UNAUTHENTICATED
+  status_code: UNAUTHENTICATED
 };
-option (connecterrors.v1.error) = {
-  code: "ERROR_RATE_LIMITED"
+option (errors.v1.file_error) = {
+  error_code: "ERROR_RATE_LIMITED"
   message: "Too many requests, try again later"
-  connect_code: CODE_RESOURCE_EXHAUSTED
+  status_code: RESOURCE_EXHAUSTED
   retryable: true
 };
 
 service UserService {
   rpc GetUser(GetUserRequest) returns (User) {
     // Method-level: only for this RPC
-    option (connecterrors.v1.connect_error) = {
-      code: "ERROR_INVALID_USER_ID"
+    option (errors.v1.rpc_error) = {
+      error_code: "ERROR_INVALID_USER_ID"
       message: "Invalid user ID: '{{id}}'"
-      connect_code: CODE_INVALID_ARGUMENT
+      status_code: INVALID_ARGUMENT
     };
   };
 
   rpc DeleteUser(DeleteUserRequest) returns (Empty) {
-    option (connecterrors.v1.connect_error) = {
-      code: "ERROR_DELETE_FORBIDDEN"
+    option (errors.v1.rpc_error) = {
+      error_code: "ERROR_DELETE_FORBIDDEN"
       message: "Cannot delete user: {{reason}}"
-      connect_code: CODE_PERMISSION_DENIED
+      status_code: PERMISSION_DENIED
     };
   };
 
   rpc CreateUser(CreateUserRequest) returns (User) {
-    option (connecterrors.v1.connect_error) = {
-      code: "ERROR_EMAIL_EXISTS"
+    option (errors.v1.rpc_error) = {
+      error_code: "ERROR_EMAIL_EXISTS"
       message: "Email '{{email}}' is already registered"
-      connect_code: CODE_ALREADY_EXISTS
+      status_code: ALREADY_EXISTS
     };
   };
 }
@@ -390,43 +390,43 @@ All `code` parameters accept the `ErrorCoder` interface — both `ErrorCode` con
 
 ### Error Inspection
 
-| Function                       | Description                              |
-| ------------------------------ | ---------------------------------------- |
-| `FromError(connectErr)`        | Extract `Error` definition from metadata |
-| `ExtractErrorCode(connectErr)` | Get just the error code string           |
-| `ExtractErrorInfo(err)`        | Extract `google.rpc.ErrorInfo` detail    |
-| `ExtractRetryInfo(err)`        | Extract `google.rpc.RetryInfo` detail    |
-| `IsRetryable(codeOrErr)`       | Check if an error code or error is retryable |
-| `ConnectCode(code)`            | Get the `connect.Code` for an error code |
-| `MatchesError(err, code)`      | Check if an error matches a code         |
+| Function                       | Description                                |
+| ------------------------------ | ------------------------------------------ |
+| `FromError(connectErr)`        | Extract `Error` definition from metadata   |
+| `ExtractErrorCode(connectErr)` | Get just the error code string             |
+| `ExtractErrorInfo(err)`        | Extract `google.rpc.ErrorInfo` detail      |
+| `ExtractRetryInfo(err)`        | Extract `google.rpc.RetryInfo` detail      |
+| `IsRetryable(codeOrErr)`       | Check if an error code/error is retryable  |
+| `ConnectCode(code)`            | Get the `connect.Code` for an error code   |
+| `MatchesError(err, code)`      | Check if an error matches a code           |
 | `MatchError[T](err, matchers)` | Switch-like error matching (deterministic) |
-| `ToProblemDetails(err)`        | Convert to RFC 7807 Problem Details      |
+| `ToProblemDetails(err)`        | Convert to RFC 7807 Problem Details        |
 
 ### Registry
 
-| Function         | Description                                 |
-| ---------------- | ------------------------------------------- |
-| `Register(err)`  | Register an error definition                |
-| `RegisterAll(errs)` | Register multiple error definitions      |
-| `Lookup(code)`   | Look up an error definition by code         |
-| `MustLookup(code)` | Look up or panic if not found             |
-| `Codes()`        | Return sorted list of all registered codes  |
+| Function           | Description                                |
+| ------------------ | ------------------------------------------ |
+| `Register(err)`    | Register an error definition               |
+| `RegisterAll(errs)`| Register multiple error definitions        |
+| `Lookup(code)`     | Look up an error definition by code        |
+| `MustLookup(code)` | Look up or panic if not found              |
+| `Codes()`          | Return sorted list of all registered codes |
 
 ### Advanced Error Construction
 
-| Function                          | Description                                   |
-| --------------------------------- | --------------------------------------------- |
-| `NewWithRetry(code, data, delay)` | Create error with custom retry delay          |
-| `NewCtx(ctx, code, data)`         | Create error with context-extracted metadata  |
-| `NewBuilder(code, data)`          | Chainable builder for complex errors          |
-| `WithFieldViolation(err, field, msg)` | Add `google.rpc.BadRequest` FieldViolation |
-| `WithDetails(err, details...)`    | Add protobuf details to an error              |
-| `SetDomain(domain)`               | Configure global error domain                 |
-| `GetDomain()`                     | Get the current error domain                  |
-| `GetHeaderKeys()`                 | Get the current header key configuration      |
-| `SetContextExtractor(fn)`         | Configure context-to-metadata extraction      |
-| `SetErrorLogger(fn)`              | Configure logger for all error creations      |
-| `SetValidationLogger(fn)`         | Configure logger for template validation failures |
+| Function                             | Description                                    |
+| ------------------------------------ | ---------------------------------------------- |
+| `NewWithRetry(code, data, delay)`    | Create error with custom retry delay           |
+| `NewCtx(ctx, code, data)`            | Create error with context-extracted metadata   |
+| `NewBuilder(code, data)`             | Chainable builder for complex errors           |
+| `WithFieldViolation(err, field, msg)`| Add `google.rpc.BadRequest` FieldViolation     |
+| `WithDetails(err, details...)`       | Add protobuf details to an error               |
+| `SetDomain(domain)`                  | Configure global error domain                  |
+| `GetDomain()`                        | Get the current error domain                   |
+| `GetHeaderKeys()`                    | Get the current header key configuration       |
+| `SetContextExtractor(fn)`            | Configure context-to-metadata extraction       |
+| `SetErrorLogger(fn)`                 | Configure logger for all error creations       |
+| `SetValidationLogger(fn)`            | Configure logger for template validation fails |
 
 ### Template Utilities
 
@@ -582,28 +582,28 @@ if errors.Is(err, cerr.ErrNotFound) {
 
 ---
 
-## Connect Code Reference (Proto)
+## RPC Code Reference (Proto)
 
-When defining errors in your `.proto` files, use the `Code` enum for the `connect_code` field. Most modern IDEs will provide autocomplete for these.
+When defining errors in your `.proto` files, use the `google.rpc.Code` enum for the `status_code` field. Most modern IDEs will provide autocomplete for these.
 
-| Proto Enum Constant        | Connect Status Code | Go Constant (`connect.Code`)     |
-| -------------------------- | ------------------- | -------------------------------- |
-| `CODE_CANCELED`            | Canceled            | `connect.CodeCanceled`           |
-| `CODE_UNKNOWN`             | Unknown             | `connect.CodeUnknown`            |
-| `CODE_INVALID_ARGUMENT`    | Invalid Argument    | `connect.CodeInvalidArgument`    |
-| `CODE_DEADLINE_EXCEEDED`   | Deadline Exceeded   | `connect.CodeDeadlineExceeded`   |
-| `CODE_NOT_FOUND`           | Not Found           | `connect.CodeNotFound`           |
-| `CODE_ALREADY_EXISTS`      | Already Exists      | `connect.CodeAlreadyExists`      |
-| `CODE_PERMISSION_DENIED`   | Permission Denied   | `connect.CodePermissionDenied`   |
-| `CODE_RESOURCE_EXHAUSTED`  | Resource Exhausted  | `connect.CodeResourceExhausted`  |
-| `CODE_FAILED_PRECONDITION` | Failed Precondition | `connect.CodeFailedPrecondition` |
-| `CODE_ABORTED`             | Aborted             | `connect.CodeAborted`            |
-| `CODE_OUT_OF_RANGE`        | Out Of Range        | `connect.CodeOutOfRange`         |
-| `CODE_UNIMPLEMENTED`       | Unimplemented       | `connect.CodeUnimplemented`      |
-| `CODE_INTERNAL`            | Internal            | `connect.CodeInternal`           |
-| `CODE_UNAVAILABLE`         | Unavailable         | `connect.CodeUnavailable`        |
-| `CODE_DATA_LOSS`           | Data Loss           | `connect.CodeDataLoss`           |
-| `CODE_UNAUTHENTICATED`     | Unauthenticated     | `connect.CodeUnauthenticated`    |
+| Proto Enum Constant  | Connect Status Code | Go Constant (`connect.Code`)     |
+| -------------------- | ------------------- | -------------------------------- |
+| `CANCELED`           | Canceled            | `connect.CodeCanceled`           |
+| `UNKNOWN`            | Unknown             | `connect.CodeUnknown`            |
+| `INVALID_ARGUMENT`   | Invalid Argument    | `connect.CodeInvalidArgument`    |
+| `DEADLINE_EXCEEDED`  | Deadline Exceeded   | `connect.CodeDeadlineExceeded`   |
+| `NOT_FOUND`          | Not Found           | `connect.CodeNotFound`           |
+| `ALREADY_EXISTS`     | Already Exists      | `connect.CodeAlreadyExists`      |
+| `PERMISSION_DENIED`  | Permission Denied   | `connect.CodePermissionDenied`   |
+| `RESOURCE_EXHAUSTED` | Resource Exhausted  | `connect.CodeResourceExhausted`  |
+| `FAILED_PRECONDITION`| Failed Precondition | `connect.CodeFailedPrecondition` |
+| `ABORTED`            | Aborted             | `connect.CodeAborted`            |
+| `OUT_OF_RANGE`       | Out Of Range        | `connect.CodeOutOfRange`         |
+| `UNIMPLEMENTED`      | Unimplemented       | `connect.CodeUnimplemented`      |
+| `INTERNAL`           | Internal            | `connect.CodeInternal`           |
+| `UNAVAILABLE`        | Unavailable         | `connect.CodeUnavailable`        |
+| `DATA_LOSS`          | Data Loss           | `connect.CodeDataLoss`           |
+| `UNAUTHENTICATED`    | Unauthenticated     | `connect.CodeUnauthenticated`    |
 
 ---
 
