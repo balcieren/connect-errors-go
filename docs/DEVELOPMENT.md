@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.21+
+- Go 1.24+
 - [buf](https://buf.build/) (for proto linting)
 - [golangci-lint](https://golangci-lint.run/) (for Go linting)
 

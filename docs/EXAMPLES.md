@@ -11,13 +11,13 @@ import (
 
 func handleGetUser(id string) error {
     if id == "" {
-        return connecterrors.New(connecterrors.InvalidArgument, connecterrors.M{
+        return connecterrors.New(connecterrors.ErrInvalidArgument, connecterrors.M{
             "reason": "id is required",
         })
     }
 
     // Simulate not found
-    return connecterrors.New(connecterrors.NotFound, connecterrors.M{
+    return connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{
         "id": id,
     })
 }
@@ -41,7 +41,7 @@ func init() {
 }
 
 func handleCreateUser(email string) error {
-    return connecterrors.New("ERROR_EMAIL_EXISTS", connecterrors.M{
+    return connecterrors.New(connecterrors.ErrorCode("ERROR_EMAIL_EXISTS"), connecterrors.M{
         "email": email,
     })
 }
@@ -52,7 +52,7 @@ func handleCreateUser(email string) error {
 ```go
 user, err := db.GetUser(ctx, id)
 if err != nil {
-    return connecterrors.Wrap(connecterrors.NotFound, err, connecterrors.M{
+    return connecterrors.Wrap(connecterrors.ErrNotFound, err, connecterrors.M{
         "id": id,
     })
 }
@@ -62,7 +62,7 @@ if err != nil {
 
 ```go
 return connecterrors.NewWithMessage(
-    connecterrors.NotFound,
+    connecterrors.ErrNotFound,
     "User '{{id}}' was deleted on {{date}}",
     connecterrors.M{"id": "123", "date": "2026-01-01"},
 )
@@ -85,7 +85,7 @@ err := connecterrors.ValidateTemplate(tpl, connecterrors.M{"id": "123"})
 ## Check Retryability
 
 ```go
-if connecterrors.IsRetryable(connecterrors.Unavailable) {
+if connecterrors.IsRetryable(connecterrors.ErrUnavailable) {
     // implement retry logic
 }
 ```

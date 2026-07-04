@@ -32,12 +32,18 @@ return nil, userv1.NewErrUserNotFound(userv1.UserNotFoundParams{
 | Feature                       | Description                                                    |
 | ----------------------------- | -------------------------------------------------------------- |
 | 🔧 **Proto-first**            | Errors live in `.proto` files next to your service definitions |
-| ⚡ **Generated Constructors** | `NewErrXxx(XxxParams{})` — fully typed, zero string literals      |
+| ⚡ **Generated Constructors** | `NewErrXxx(XxxParams{})` — fully typed, zero string literals   |
 | 🎯 **Compile-time safe**      | `ErrorCode` type + struct params catch all typos at build      |
-| 📝 **Template Messages**      | `{{placeholder}}` → struct fields, validated by the compiler   |
-| 🔄 **Retryable Errors**       | Mark errors as retryable directly in proto                     |
-| 🪝 **Interceptor**            | Server-side hook for logging, metrics, and tracing             |
-| ✅ **errors.As**              | Standard Go error matching for custom data extraction          |
+| 📝 **Template Messages**      | `{{placeholder}}` → struct fields, validated at runtime        |
+| 🔄 **Retryable Errors**       | Mark errors as retryable with custom retry delays in proto     |
+| 🪝 **Interceptors**           | Unary + streaming hooks for logging, metrics, and tracing      |
+| ✅ **errors.Is / errors.As**  | Idiomatic Go error matching via `ErrorCode` & `CodedError`    |
+| 🔀 **Error Matching**         | `MatchesError` + `MatchError` (switch-like, deterministic)     |
+| 🔨 **Error Builder**          | Chainable API: `.WithFieldViolation().WithRetryDelay().Build()` |
+| 🌐 **RFC 7807**               | `ToProblemDetails()` for REST/HTTP adapters                    |
+| 🏷️ **Configurable Domain**    | `SetDomain("myapp")` for `google.rpc.ErrorInfo`               |
+| 🧩 **Context-aware**          | `NewCtx()` + `SetContextExtractor()` for trace IDs, etc.       |
+| 📊 **Customizable Logging**   | `SetErrorLogger()` + `SetValidationLogger()` for any log package |
 
 ## Quick Start
 
@@ -289,6 +295,17 @@ if errors.As(connectErr.Unwrap(), &coded) {
 }
 ```
 
+### Client-Side Error Info Extraction
+
+The plugin also generates typed `ExtractXxxInfo` helpers for pulling structured `google.rpc.ErrorInfo` metadata from errors:
+
+```go
+// Use the generated typed extractor for specific errors:
+if info := userv1.ExtractUserNotFoundInfo(err); info != nil {
+    fmt.Println(info.Metadata["id"]) // "123"
+}
+```
+
 ## Interceptor — Centralized Error Handling
 
 ```go
@@ -350,8 +367,8 @@ func init() {
 return nil, cerr.New(ErrEmailTaken, cerr.M{"email": email})
 
 // Or use built-in codes
-return nil, cerr.New(cerr.ErrNotFound, cerr.M{"id": id})
-return nil, cerr.Wrap(cerr.ErrInternal, dbErr, cerr.M{})
+return nil, cerr.New(cerr.ErrNotFound, nil)
+return nil, cerr.Wrap(cerr.ErrInternal, dbErr, nil)
 return nil, cerr.Newf(cerr.ErrNotFound, "User %q not found", id)
 ```
 
@@ -377,8 +394,39 @@ All `code` parameters accept the `ErrorCoder` interface — both `ErrorCode` con
 | ------------------------------ | ---------------------------------------- |
 | `FromError(connectErr)`        | Extract `Error` definition from metadata |
 | `ExtractErrorCode(connectErr)` | Get just the error code string           |
-| `IsRetryable(code)`            | Check if an error code is retryable      |
+| `ExtractErrorInfo(err)`        | Extract `google.rpc.ErrorInfo` detail    |
+| `ExtractRetryInfo(err)`        | Extract `google.rpc.RetryInfo` detail    |
+| `IsRetryable(codeOrErr)`       | Check if an error code or error is retryable |
 | `ConnectCode(code)`            | Get the `connect.Code` for an error code |
+| `MatchesError(err, code)`      | Check if an error matches a code         |
+| `MatchError[T](err, matchers)` | Switch-like error matching (deterministic) |
+| `ToProblemDetails(err)`        | Convert to RFC 7807 Problem Details      |
+
+### Registry
+
+| Function         | Description                                 |
+| ---------------- | ------------------------------------------- |
+| `Register(err)`  | Register an error definition                |
+| `RegisterAll(errs)` | Register multiple error definitions      |
+| `Lookup(code)`   | Look up an error definition by code         |
+| `MustLookup(code)` | Look up or panic if not found             |
+| `Codes()`        | Return sorted list of all registered codes  |
+
+### Advanced Error Construction
+
+| Function                          | Description                                   |
+| --------------------------------- | --------------------------------------------- |
+| `NewWithRetry(code, data, delay)` | Create error with custom retry delay          |
+| `NewCtx(ctx, code, data)`         | Create error with context-extracted metadata  |
+| `NewBuilder(code, data)`          | Chainable builder for complex errors          |
+| `WithFieldViolation(err, field, msg)` | Add `google.rpc.BadRequest` FieldViolation |
+| `WithDetails(err, details...)`    | Add protobuf details to an error              |
+| `SetDomain(domain)`               | Configure global error domain                 |
+| `GetDomain()`                     | Get the current error domain                  |
+| `GetHeaderKeys()`                 | Get the current header key configuration      |
+| `SetContextExtractor(fn)`         | Configure context-to-metadata extraction      |
+| `SetErrorLogger(fn)`              | Configure logger for all error creations      |
+| `SetValidationLogger(fn)`         | Configure logger for template validation failures |
 
 ### Template Utilities
 
@@ -393,6 +441,143 @@ cerr.FormatTemplate("User '{{id}}'", cerr.M{"id": "123"}) // → "User '123'"
 ```go
 // Customize metadata header keys
 cerr.SetHeaderKeys("x-custom-error-code", "x-custom-retryable")
+
+// Customize error domain (used in google.rpc.ErrorInfo)
+cerr.SetDomain("myapp")
+
+// Configure context-to-metadata extraction for trace IDs, etc.
+cerr.SetContextExtractor(func(ctx context.Context) cerr.M {
+    if traceID, ok := ctx.Value("trace_id").(string); ok {
+        return cerr.M{"trace_id": traceID}
+    }
+    return nil
+})
+```
+
+### Logging
+
+Connect errors provides two customizable loggers:
+
+- **ErrorLogger**: Called for every error creation (`New`, `NewWithMessage`, `Wrap`, etc.)
+- **ValidationLogger**: Called when template validation fails (missing placeholder data)
+
+Both default to no-op. Configure them to integrate with your logging/monitoring stack:
+
+```go
+// Log all errors with slog
+cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
+    slog.Info("error created", "code", code, "connect_code", connectCode, "retryable", retryable)
+})
+
+// Log validation failures
+cerr.SetValidationLogger(func(code string, data cerr.M, err error) {
+    slog.Error("template validation failed", "code", code, "error", err)
+})
+```
+
+#### Integration Examples
+
+```go
+// Zap
+logger, _ := zap.NewProduction()
+cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
+    logger.Info("error created",
+        zap.String("code", code),
+        zap.String("connect_code", connectCode.String()),
+        zap.Bool("retryable", retryable),
+    )
+})
+
+// Sentry
+cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
+    sentry.WithScope(func(scope *sentry.Scope) {
+        scope.SetTag("error_code", code)
+        scope.SetContext("data", data)
+        sentry.CaptureMessage("Error created: " + code)
+    })
+})
+
+// Prometheus metrics
+cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
+    errorsCreated.WithLabelValues(code, connectCode.String()).Inc()
+})
+```
+
+### Error Builder
+
+```go
+// Chainable API for complex error construction
+err := cerr.NewBuilder(cerr.ErrInvalidArgument, nil).
+    WithFieldViolation("email", "already registered").
+    WithRetryDelay(5 * time.Second).
+    WithDomain("myapp").
+    WithMessage("custom message").
+    WithDetail(detail).
+    Build()
+```
+
+### MatchError with Matcher[T]
+
+```go
+// Switch-like matching with typed return values
+result, ok := cerr.MatchError(err, []cerr.Matcher[string]{
+    {Code: cerr.ErrNotFound, Fn: func() string { return "not found" }},
+    {Code: cerr.ErrInternal, Fn: func() string { return "internal error" }},
+})
+if ok {
+    fmt.Println(result)
+}
+```
+
+### RFC 7807 Problem Details
+
+```go
+// Convert Connect errors to RFC 7807 format for REST adapters
+err := cerr.New(cerr.ErrNotFound, nil)
+pd := cerr.ToProblemDetails(err)
+// pd.Status = 404, pd.Title = "ERROR_NOT_FOUND", pd.Detail = "Resource not found"
+```
+
+ProblemDetails struct:
+
+```go
+type ProblemDetails struct {
+    Type     string `json:"type,omitempty"`
+    Title    string `json:"title,omitempty"`
+    Detail   string `json:"detail,omitempty"`
+    Status   int    `json:"status,omitempty"`
+    Instance string `json:"instance,omitempty"`
+}
+```
+
+### Streaming Interceptor
+
+```go
+// Streaming counterpart of ErrorInterceptor
+interceptor := cerr.StreamingErrorInterceptor(func(ctx context.Context, err *connect.Error, def cerr.Error) {
+    slog.ErrorContext(ctx, "streaming rpc error", "code", def.Code)
+})
+```
+
+`StreamingHandlerInterceptorFunc` implements `connect.Interceptor` and provides hooks for all RPC types:
+
+```go
+type StreamingHandlerInterceptorFunc func(connect.StreamingHandlerFunc) connect.StreamingHandlerFunc
+
+// Methods:
+// - WrapUnary(next connect.UnaryFunc) connect.UnaryFunc
+// - WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc
+// - WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc
+```
+
+### errors.Is Support
+
+```go
+// ErrorCode implements the error interface, enabling idiomatic Go error matching
+err := cerr.New(cerr.ErrNotFound, nil)
+if errors.Is(err, cerr.ErrNotFound) {
+    fmt.Println("not found")
+}
 ```
 
 ---
@@ -424,7 +609,7 @@ When defining errors in your `.proto` files, use the `Code` enum for the `connec
 
 ## Built-in Go Error Codes
 
-Preprocessing `ErrorCode` constants provided by the library:
+Pre-defined `ErrorCode` constants provided by the library:
 
 | Constant                | Default Connect Code       | Default Retryable |
 | ----------------------- | -------------------------- | ----------------- |
@@ -446,6 +631,20 @@ Preprocessing `ErrorCode` constants provided by the library:
 
 ---
 
+## Concurrency Safety
+
+All global state (registry, domain, header keys, loggers, context extractor) is protected for concurrent use:
+
+- **Registry**: Copy-on-write with `atomic.Value` for lock-free reads, `sync.Mutex` for writes
+- **Loggers**: `atomic.Value` for `SetErrorLogger()` / `SetValidationLogger()`
+- **Domain & Header Keys**: `atomic.Value` with mutex-protected read-modify-write for `SetHeaderKeys()`
+- **Context Extractor**: `atomic.Value`
+- **Error Builder**: `WithDomain()` overrides domain per-error without mutating global state
+
+All error creation functions (`New`, `Wrap`, `NewWithMessage`, etc.) are safe to call concurrently from multiple goroutines.
+
+---
+
 ## Error Metadata & Details
 
 Every error includes both HTTP/gRPC metadata headers and Protobuf `connect.ErrorDetail` messages:
@@ -459,8 +658,9 @@ Every error includes both HTTP/gRPC metadata headers and Protobuf `connect.Error
 
 ### Protobuf Details
 
-- `google.rpc.ErrorInfo`: Attached to all errors. `Reason` contains the error code, `Domain` is `"connecterrors"`, and `Metadata` contains the template variables.
-- `google.rpc.RetryInfo`: Attached automatically when `Retryable` is true (zero delay).
+- `google.rpc.ErrorInfo`: Attached to all errors. `Reason` contains the error code, `Domain` defaults to `"connecterrors"` (configurable via `SetDomain()`), and `Metadata` contains the template variables.
+- `google.rpc.RetryInfo`: Attached automatically when `Retryable` is true. Delay defaults to zero but can be set via `retry_delay_ms` in proto or `NewWithRetry()` at runtime.
+- `google.rpc.BadRequest`: Attached via `WithFieldViolation()` for input validation failures.
 
 Use the provided extractors to safely parse details:
 
