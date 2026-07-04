@@ -125,11 +125,10 @@ func TestMapConnectCode(t *testing.T) {
 }
 
 func TestParseErrorDef(t *testing.T) {
-	// Manual protobuf wire format construction
 	// ErrorDef {
-	//   code (1): "ERR_TEST"
+	//   error_code (1): "ERR_TEST"
 	//   message (2): "msg"
-	//   connect_code (3): 5 (not_found)
+	//   status_code (3): 5 (not_found)
 	//   retryable (4): true
 	// }
 	data := []byte{
@@ -144,14 +143,14 @@ func TestParseErrorDef(t *testing.T) {
 		t.Fatal("parseErrorDef failed")
 	}
 
-	if got.Code != "ERR_TEST" {
-		t.Errorf("Code = %q, want ERR_TEST", got.Code)
+	if got.ErrorCode != "ERR_TEST" {
+		t.Errorf("ErrorCode = %q, want ERR_TEST", got.ErrorCode)
 	}
 	if got.Message != "msg" {
 		t.Errorf("Message = %q, want msg", got.Message)
 	}
-	if got.ConnectCode != 5 {
-		t.Errorf("ConnectCode = %d, want 5", got.ConnectCode)
+	if got.StatusCode != 5 {
+		t.Errorf("StatusCode = %d, want 5", got.StatusCode)
 	}
 	if !got.Retryable {
 		t.Error("Retryable = false, want true")
@@ -160,16 +159,16 @@ func TestParseErrorDef(t *testing.T) {
 
 func TestParseErrorDefWithRetryDelay(t *testing.T) {
 	// ErrorDef {
-	//   code (1): "ERROR_RATE_LIMITED"
+	//   error_code (1): "ERROR_RATE_LIMITED"
 	//   message (2): "Too many requests"
-	//   connect_code (3): 8 (resource_exhausted)
+	//   status_code (3): 8 (resource_exhausted)
 	//   retryable (4): true
 	//   retry_delay_ms (5): 5000
 	// }
 	data := []byte{
 		0x0a, 0x12, 'E', 'R', 'R', 'O', 'R', '_', 'R', 'A', 'T', 'E', '_', 'L', 'I', 'M', 'I', 'T', 'E', 'D',
 		0x12, 0x11, 'T', 'o', 'o', ' ', 'm', 'a', 'n', 'y', ' ', 'r', 'e', 'q', 'u', 'e', 's', 't', 's',
-		0x18, 0x08, // connect_code: 8
+		0x18, 0x08, // status_code: 8
 		0x20, 0x01, // retryable: true
 		0x28, 0x88, 0x27, // retry_delay_ms: 5000 (varint: 0x1388 → 0x88 0x27)
 	}
@@ -193,8 +192,8 @@ func TestParseErrorDefEmptyCode(t *testing.T) {
 	if !ok {
 		t.Fatal("parseErrorDef failed")
 	}
-	if got.Code != "" {
-		t.Errorf("Code = %q, want empty", got.Code)
+	if got.ErrorCode != "" {
+		t.Errorf("ErrorCode = %q, want empty", got.ErrorCode)
 	}
 }
 
@@ -327,17 +326,17 @@ func generateTestPlugin(t *testing.T, defs []errorDef) string {
 // encodeErrorDef encodes an errorDef as protobuf wire format.
 func encodeErrorDef(def errorDef) []byte {
 	var b []byte
-	if def.Code != "" {
+	if def.ErrorCode != "" {
 		b = protowire.AppendTag(b, 1, protowire.BytesType)
-		b = protowire.AppendString(b, def.Code)
+		b = protowire.AppendString(b, def.ErrorCode)
 	}
 	if def.Message != "" {
 		b = protowire.AppendTag(b, 2, protowire.BytesType)
 		b = protowire.AppendString(b, def.Message)
 	}
-	if def.ConnectCode != 0 {
+	if def.StatusCode != 0 {
 		b = protowire.AppendTag(b, 3, protowire.VarintType)
-		b = protowire.AppendVarint(b, uint64(def.ConnectCode))
+		b = protowire.AppendVarint(b, uint64(def.StatusCode))
 	}
 	if def.Retryable {
 		b = protowire.AppendTag(b, 4, protowire.VarintType)
@@ -352,9 +351,9 @@ func encodeErrorDef(def errorDef) []byte {
 
 func TestGenerateFileProducesCompilableGo(t *testing.T) {
 	defs := []errorDef{
-		{Code: "ERROR_USER_NOT_FOUND", Message: "User '{{id}}' not found", ConnectCode: 5, Retryable: false},
-		{Code: "ERROR_RATE_LIMITED", Message: "Too many requests", ConnectCode: 8, Retryable: true, RetryDelayMs: 5000},
-		{Code: "ERROR_INTERNAL", Message: "Internal error", ConnectCode: 13, Retryable: false},
+		{ErrorCode: "ERROR_USER_NOT_FOUND", Message: "User '{{id}}' not found", StatusCode: 5, Retryable: false},
+		{ErrorCode: "ERROR_RATE_LIMITED", Message: "Too many requests", StatusCode: 8, Retryable: true, RetryDelayMs: 5000},
+		{ErrorCode: "ERROR_INTERNAL", Message: "Internal error", StatusCode: 13, Retryable: false},
 	}
 
 	generated := generateTestPlugin(t, defs)
@@ -390,9 +389,9 @@ func TestGenerateFileProducesCompilableGo(t *testing.T) {
 
 func TestGenerateFileSkipsInvalidCodes(t *testing.T) {
 	defs := []errorDef{
-		{Code: "", Message: "empty code", ConnectCode: 5},
-		{Code: "ERROR-INVALID", Message: "hyphen code", ConnectCode: 5},
-		{Code: "ERROR_VALID", Message: "valid", ConnectCode: 5},
+		{ErrorCode: "", Message: "empty code", StatusCode: 5},
+		{ErrorCode: "ERROR-INVALID", Message: "hyphen code", StatusCode: 5},
+		{ErrorCode: "ERROR_VALID", Message: "valid", StatusCode: 5},
 	}
 
 	generated := generateTestPlugin(t, defs)
@@ -411,7 +410,7 @@ func TestGenerateFileSkipsInvalidCodes(t *testing.T) {
 
 func TestGenerateFileHandlesNoPlaceholders(t *testing.T) {
 	defs := []errorDef{
-		{Code: "ERROR_SIMPLE", Message: "A simple error", ConnectCode: 13, Retryable: false},
+		{ErrorCode: "ERROR_SIMPLE", Message: "A simple error", StatusCode: 13, Retryable: false},
 	}
 
 	generated := generateTestPlugin(t, defs)
@@ -429,7 +428,7 @@ func TestGenerateFileHandlesNoPlaceholders(t *testing.T) {
 func TestGeneratedASTDeclaration(t *testing.T) {
 	// Use go/ast to verify the generated code has proper declarations
 	defs := []errorDef{
-		{Code: "ERROR_NOT_FOUND", Message: "Not found '{{id}}'", ConnectCode: 5, Retryable: false},
+		{ErrorCode: "ERROR_NOT_FOUND", Message: "Not found '{{id}}'", StatusCode: 5, Retryable: false},
 	}
 
 	generated := generateTestPlugin(t, defs)

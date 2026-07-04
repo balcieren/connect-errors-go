@@ -53,9 +53,9 @@ func main() {
 }
 
 type errorDef struct {
-	Code          string
+	ErrorCode     string
 	Message       string
-	ConnectCode   int
+	StatusCode    int
 	Retryable     bool
 	RetryDelayMs  int64
 }
@@ -106,11 +106,11 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 	seen := make(map[string]bool, len(errors))
 	unique := make([]errorDef, 0, len(errors))
 	for _, e := range errors {
-		if e.Code == "" || !isValidErrorCode(e.Code) {
+		if e.ErrorCode == "" || !isValidErrorCode(e.ErrorCode) {
 			continue
 		}
-		if !seen[e.Code] {
-			seen[e.Code] = true
+		if !seen[e.ErrorCode] {
+			seen[e.ErrorCode] = true
 			unique = append(unique, e)
 		}
 	}
@@ -151,8 +151,8 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 	g.P("// Error code constants for use with cerr.New, cerr.Wrap, etc.")
 	g.P("const (")
 	for _, e := range errors {
-		varName := "Err" + errorCodeToConstant(e.Code)
-		g.P(fmt.Sprintf("\t%s cerr.ErrorCode = %q", varName, e.Code))
+		varName := "Err" + errorCodeToConstant(e.ErrorCode)
+		g.P(fmt.Sprintf("\t%s cerr.ErrorCode = %q", varName, e.ErrorCode))
 	}
 	g.P(")")
 	g.P()
@@ -162,11 +162,11 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 	g.P("func init() {")
 	g.P("\tcerr.RegisterAll([]cerr.Error{")
 	for _, e := range errors {
-		constName := "Err" + errorCodeToConstant(e.Code)
+		constName := "Err" + errorCodeToConstant(e.ErrorCode)
 		g.P("\t\t{")
 		g.P(fmt.Sprintf("\t\t\tCode:        %s,", constName))
 		g.P(fmt.Sprintf("\t\t\tMessageTpl:  %q,", e.Message))
-		g.P(fmt.Sprintf("\t\t\tConnectCode: %s,", mapConnectCode(e.ConnectCode)))
+		g.P(fmt.Sprintf("\t\t\tStatusCode: %s,", mapConnectCode(e.StatusCode)))
 		g.P(fmt.Sprintf("\t\t\tRetryable:   %t,", e.Retryable))
 		if e.RetryDelayMs > 0 {
 			g.P(fmt.Sprintf("\t\t\tRetryDelay:  %d * time.Millisecond,", e.RetryDelayMs))
@@ -181,21 +181,21 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 	g.P("// Typed constructor functions for compile-time safe error creation.")
 	g.P("// Parameters are derived from {{placeholder}} fields in message templates.")
 	for _, e := range errors {
-		constName := "Err" + errorCodeToConstant(e.Code)
-		baseName := errorCodeToConstant(e.Code)
+		constName := "Err" + errorCodeToConstant(e.ErrorCode)
+		baseName := errorCodeToConstant(e.ErrorCode)
 		funcName := "NewErr" + baseName
 		fields := extractTemplateFields(e.Message)
 
 		if len(fields) == 0 {
 			// No placeholders → no-arg constructor
-			g.P(fmt.Sprintf("// %s creates a *connect.Error for %s.", funcName, e.Code))
+			g.P(fmt.Sprintf("// %s creates a *connect.Error for %s.", funcName, e.ErrorCode))
 			g.P(fmt.Sprintf("func %s() *connect.Error {", funcName))
 			g.P(fmt.Sprintf("\treturn cerr.New(%s, nil)", constName))
 			g.P("}")
 		} else {
 			// Generate params struct
 			structName := baseName + "Params"
-			g.P(fmt.Sprintf("// %s holds the template fields for %s.", structName, e.Code))
+			g.P(fmt.Sprintf("// %s holds the template fields for %s.", structName, e.ErrorCode))
 			g.P(fmt.Sprintf("type %s struct {", structName))
 			for _, f := range fields {
 				g.P(fmt.Sprintf("\t%s string", fieldToExportedName(f)))
@@ -204,7 +204,7 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 			g.P()
 
 			// Generate constructor
-			g.P(fmt.Sprintf("// %s creates a *connect.Error for %s.", funcName, e.Code))
+			g.P(fmt.Sprintf("// %s creates a *connect.Error for %s.", funcName, e.ErrorCode))
 			g.P(fmt.Sprintf("func %s(p %s) *connect.Error {", funcName, structName))
 
 			// Build cerr.M{} from struct fields
@@ -222,10 +222,10 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 	g.P("// Client-side error matchers for checking errors returned by Connect RPC calls.")
 	g.P("// They check both metadata headers and protobuf details for compatibility.")
 	for _, e := range errors {
-		baseName := errorCodeToConstant(e.Code)
+		baseName := errorCodeToConstant(e.ErrorCode)
 		constName := "Err" + baseName
 		funcName := "Is" + baseName
-		g.P(fmt.Sprintf("// %s reports whether err is a %s error.", funcName, e.Code))
+		g.P(fmt.Sprintf("// %s reports whether err is a %s error.", funcName, e.ErrorCode))
 		g.P(fmt.Sprintf("func %s(err error) bool {", funcName))
 		g.P("\tvar connectErr *connect.Error")
 		g.P("\tif !errors.As(err, &connectErr) {")
@@ -248,10 +248,10 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 	// Generate typed ErrorInfo extractors
 	g.P("// Typed ErrorInfo extractors for pulling structured metadata from errors.")
 	for _, e := range errors {
-		baseName := errorCodeToConstant(e.Code)
+		baseName := errorCodeToConstant(e.ErrorCode)
 		isFuncName := "Is" + baseName
 		extractFuncName := "Extract" + baseName + "Info"
-		g.P(fmt.Sprintf("// %s extracts the google.rpc.ErrorInfo from a %s error, if matching.", extractFuncName, e.Code))
+		g.P(fmt.Sprintf("// %s extracts the google.rpc.ErrorInfo from a %s error, if matching.", extractFuncName, e.ErrorCode))
 		g.P(fmt.Sprintf("func %s(err error) *errdetails.ErrorInfo {", extractFuncName))
 		g.P(fmt.Sprintf("\tif !%s(err) {", isFuncName))
 		g.P("\t\treturn nil")
@@ -311,7 +311,7 @@ func parseExtensionErrors(b []byte, fieldNum protowire.Number) []errorDef {
 }
 
 // parseErrorDef parses a single ErrorDef message from wire-format bytes.
-// ErrorDef fields: code(1), message(2), connect_code(3), retryable(4).
+// ErrorDef fields: error_code(1), message(2), status_code(3), retryable(4).
 func parseErrorDef(b []byte) (errorDef, bool) {
 	var def errorDef
 	var found bool
@@ -328,7 +328,7 @@ func parseErrorDef(b []byte) (errorDef, bool) {
 			n = vn
 			switch num {
 			case 1:
-				def.Code = string(v)
+				def.ErrorCode = string(v)
 				found = true
 			case 2:
 				def.Message = string(v)
@@ -339,7 +339,7 @@ func parseErrorDef(b []byte) (errorDef, bool) {
 			n = vn
 			switch num {
 			case 3:
-				def.ConnectCode = int(v)
+				def.StatusCode = int(v)
 				found = true
 			case 4:
 				def.Retryable = v != 0
