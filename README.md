@@ -311,8 +311,8 @@ if info := userv1.ExtractUserNotFoundInfo(err); info != nil {
 ```go
 interceptor := cerr.ErrorInterceptor(func(ctx context.Context, err *connect.Error, def cerr.Error) {
     slog.ErrorContext(ctx, "rpc error",
-        "code", def.Code,
-        "connect_code", def.ConnectCode,
+        "code", def.ErrorCode,
+        "status_code", def.StatusCode,
         "retryable", def.Retryable,
     )
 })
@@ -357,9 +357,9 @@ const ErrEmailTaken cerr.ErrorCode = "ERROR_EMAIL_TAKEN"
 
 func init() {
     cerr.Register(cerr.Error{
-        Code:        ErrEmailTaken,
-        MessageTpl:  "Email '{{email}}' is taken",
-        ConnectCode: connect.CodeAlreadyExists,
+    ErrorCode:   ErrEmailTaken,
+    MessageTpl:  "Email '{{email}}' is taken",
+    StatusCode:  connect.CodeAlreadyExists,
     })
 }
 
@@ -397,7 +397,7 @@ All `code` parameters accept the `ErrorCoder` interface — both `ErrorCode` con
 | `ExtractErrorInfo(err)`        | Extract `google.rpc.ErrorInfo` detail      |
 | `ExtractRetryInfo(err)`        | Extract `google.rpc.RetryInfo` detail      |
 | `IsRetryable(codeOrErr)`       | Check if an error code/error is retryable  |
-| `ConnectCode(code)`            | Get the `connect.Code` for an error code   |
+| `StatusCode(code)`             | Get the `connect.Code` for an error code   |
 | `MatchesError(err, code)`      | Check if an error matches a code           |
 | `MatchError[T](err, matchers)` | Switch-like error matching (deterministic) |
 | `ToProblemDetails(err)`        | Convert to RFC 7807 Problem Details        |
@@ -465,8 +465,8 @@ Both default to no-op. Configure them to integrate with your logging/monitoring 
 
 ```go
 // Log all errors with slog
-cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
-    slog.Info("error created", "code", code, "connect_code", connectCode, "retryable", retryable)
+cerr.SetErrorLogger(func(code string, statusCode connect.Code, retryable bool, data cerr.M) {
+    slog.Info("error created", "code", code, "status_code", statusCode, "retryable", retryable)
 })
 
 // Log validation failures
@@ -480,16 +480,16 @@ cerr.SetValidationLogger(func(code string, data cerr.M, err error) {
 ```go
 // Zap
 logger, _ := zap.NewProduction()
-cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
+cerr.SetErrorLogger(func(code string, statusCode connect.Code, retryable bool, data cerr.M) {
     logger.Info("error created",
         zap.String("code", code),
-        zap.String("connect_code", connectCode.String()),
+        zap.String("status_code", statusCode.String()),
         zap.Bool("retryable", retryable),
     )
 })
 
 // Sentry
-cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
+cerr.SetErrorLogger(func(code string, statusCode connect.Code, retryable bool, data cerr.M) {
     sentry.WithScope(func(scope *sentry.Scope) {
         scope.SetTag("error_code", code)
         scope.SetContext("data", data)
@@ -498,8 +498,8 @@ cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, 
 })
 
 // Prometheus metrics
-cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
-    errorsCreated.WithLabelValues(code, connectCode.String()).Inc()
+cerr.SetErrorLogger(func(code string, statusCode connect.Code, retryable bool, data cerr.M) {
+    errorsCreated.WithLabelValues(code, statusCode.String()).Inc()
 })
 ```
 
@@ -521,8 +521,8 @@ err := cerr.NewBuilder(cerr.ErrInvalidArgument, nil).
 ```go
 // Switch-like matching with typed return values
 result, ok := cerr.MatchError(err, []cerr.Matcher[string]{
-    {Code: cerr.ErrNotFound, Fn: func() string { return "not found" }},
-    {Code: cerr.ErrInternal, Fn: func() string { return "internal error" }},
+    {ErrorCode: cerr.ErrNotFound, Fn: func() string { return "not found" }},
+    {ErrorCode: cerr.ErrInternal, Fn: func() string { return "internal error" }},
 })
 if ok {
     fmt.Println(result)
@@ -555,7 +555,7 @@ type ProblemDetails struct {
 ```go
 // Streaming counterpart of ErrorInterceptor
 interceptor := cerr.StreamingErrorInterceptor(func(ctx context.Context, err *connect.Error, def cerr.Error) {
-    slog.ErrorContext(ctx, "streaming rpc error", "code", def.Code)
+    slog.ErrorContext(ctx, "streaming rpc error", "code", def.ErrorCode)
 })
 ```
 

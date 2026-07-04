@@ -63,14 +63,14 @@ const (
 // Error represents a Connect RPC error definition with template support.
 // It maps a semantic error code to a Connect status code and message template.
 type Error struct {
-	// Code is the unique error identifier (e.g. "ERROR_NOT_FOUND").
-	Code ErrorCode
+	// ErrorCode is the unique error identifier (e.g. "ERROR_NOT_FOUND").
+	ErrorCode ErrorCode
 
 	// MessageTpl is a message template with {{placeholder}} syntax.
 	MessageTpl string
 
-	// ConnectCode is the Connect RPC status code for this error.
-	ConnectCode connect.Code
+	// StatusCode is the Connect RPC status code for this error.
+	StatusCode connect.Code
 
 	// Retryable indicates whether the client should retry the request.
 	Retryable bool
@@ -91,93 +91,93 @@ var registryVal atomic.Value
 // After init, use Lookup/Register/RegisterAll to interact with the registry.
 var defaultErrors = map[ErrorCode]Error{
 	ErrNotFound: {
-		Code:        ErrNotFound,
+		ErrorCode:   ErrNotFound,
 		MessageTpl:  "Resource not found",
-		ConnectCode: connect.CodeNotFound,
+		StatusCode:  connect.CodeNotFound,
 		Retryable:   false,
 	},
 	ErrInvalidArgument: {
-		Code:        ErrInvalidArgument,
+		ErrorCode:   ErrInvalidArgument,
 		MessageTpl:  "Invalid argument",
-		ConnectCode: connect.CodeInvalidArgument,
+		StatusCode:  connect.CodeInvalidArgument,
 		Retryable:   false,
 	},
 	ErrAlreadyExists: {
-		Code:        ErrAlreadyExists,
+		ErrorCode:   ErrAlreadyExists,
 		MessageTpl:  "Resource already exists",
-		ConnectCode: connect.CodeAlreadyExists,
+		StatusCode:  connect.CodeAlreadyExists,
 		Retryable:   false,
 	},
 	ErrPermissionDenied: {
-		Code:        ErrPermissionDenied,
+		ErrorCode:   ErrPermissionDenied,
 		MessageTpl:  "Permission denied",
-		ConnectCode: connect.CodePermissionDenied,
+		StatusCode:  connect.CodePermissionDenied,
 		Retryable:   false,
 	},
 	ErrUnauthenticated: {
-		Code:        ErrUnauthenticated,
+		ErrorCode:   ErrUnauthenticated,
 		MessageTpl:  "Authentication required",
-		ConnectCode: connect.CodeUnauthenticated,
+		StatusCode:  connect.CodeUnauthenticated,
 		Retryable:   false,
 	},
 	ErrInternal: {
-		Code:        ErrInternal,
+		ErrorCode:   ErrInternal,
 		MessageTpl:  "Internal server error",
-		ConnectCode: connect.CodeInternal,
+		StatusCode:  connect.CodeInternal,
 		Retryable:   false,
 	},
 	ErrUnavailable: {
-		Code:        ErrUnavailable,
+		ErrorCode:   ErrUnavailable,
 		MessageTpl:  "Service unavailable",
-		ConnectCode: connect.CodeUnavailable,
+		StatusCode:  connect.CodeUnavailable,
 		Retryable:   true,
 	},
 	ErrDeadlineExceeded: {
-		Code:        ErrDeadlineExceeded,
+		ErrorCode:   ErrDeadlineExceeded,
 		MessageTpl:  "Deadline exceeded",
-		ConnectCode: connect.CodeDeadlineExceeded,
+		StatusCode:  connect.CodeDeadlineExceeded,
 		Retryable:   true,
 	},
 	ErrResourceExhausted: {
-		Code:        ErrResourceExhausted,
+		ErrorCode:   ErrResourceExhausted,
 		MessageTpl:  "Resource exhausted",
-		ConnectCode: connect.CodeResourceExhausted,
+		StatusCode:  connect.CodeResourceExhausted,
 		Retryable:   true,
 	},
 	ErrFailedPrecondition: {
-		Code:        ErrFailedPrecondition,
+		ErrorCode:   ErrFailedPrecondition,
 		MessageTpl:  "Failed precondition",
-		ConnectCode: connect.CodeFailedPrecondition,
+		StatusCode:  connect.CodeFailedPrecondition,
 		Retryable:   false,
 	},
 	ErrAborted: {
-		Code:        ErrAborted,
+		ErrorCode:   ErrAborted,
 		MessageTpl:  "Operation aborted",
-		ConnectCode: connect.CodeAborted,
+		StatusCode:  connect.CodeAborted,
 		Retryable:   true,
 	},
 	ErrOutOfRange: {
-		Code:        ErrOutOfRange,
+		ErrorCode:   ErrOutOfRange,
 		MessageTpl:  "Value out of range",
-		ConnectCode: connect.CodeOutOfRange,
+		StatusCode:  connect.CodeOutOfRange,
 		Retryable:   false,
 	},
 	ErrUnimplemented: {
-		Code:        ErrUnimplemented,
+		ErrorCode:   ErrUnimplemented,
 		MessageTpl:  "Operation not implemented",
-		ConnectCode: connect.CodeUnimplemented,
+		StatusCode:  connect.CodeUnimplemented,
 		Retryable:   false,
 	},
 	ErrCanceled: {
-		Code:        ErrCanceled,
+		ErrorCode:   ErrCanceled,
 		MessageTpl:  "RPC canceled",
-		ConnectCode: connect.CodeCanceled,
+		StatusCode:  connect.CodeCanceled,
 		Retryable:   false,
 	},
 	ErrDataLoss: {
-		Code:        ErrDataLoss,
+		ErrorCode:   ErrDataLoss,
 		MessageTpl:  "Unrecoverable data loss",
-		ConnectCode: connect.CodeDataLoss,
+		StatusCode:  connect.CodeDataLoss,
 		Retryable:   false,
 	},
 }
@@ -188,13 +188,13 @@ var defaultErrors = map[ErrorCode]Error{
 // Example:
 //
 //	connecterrors.Register(connecterrors.Error{
-//	    Code:        "ERROR_CUSTOM",
+//	    ErrorCode:   "ERROR_CUSTOM",
 //	    MessageTpl:  "Custom error: {{detail}}",
-//	    ConnectCode: connect.CodeInternal,
+//	    StatusCode:  connect.CodeInternal,
 //	    Retryable:   false,
 //	})
 func Register(err Error) {
-	if err.Code == "" {
+	if err.ErrorCode == "" {
 		return
 	}
 	writeMu.Lock()
@@ -204,7 +204,7 @@ func Register(err Error) {
 	for k, v := range current {
 		updated[k] = v
 	}
-	updated[err.Code] = err
+	updated[err.ErrorCode] = err
 	registryVal.Store(updated)
 }
 
@@ -219,8 +219,8 @@ func RegisterAll(errs []Error) {
 		updated[k] = v
 	}
 	for _, err := range errs {
-		if err.Code != "" {
-			updated[err.Code] = err
+		if err.ErrorCode != "" {
+			updated[err.ErrorCode] = err
 		}
 	}
 	registryVal.Store(updated)

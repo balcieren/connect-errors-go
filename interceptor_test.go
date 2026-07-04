@@ -33,8 +33,8 @@ func TestErrorInterceptor(t *testing.T) {
 	if capturedErr == nil {
 		t.Fatal("expected interceptor callback to be invoked")
 	}
-	if captured.Code != connecterrors.ErrNotFound {
-		t.Errorf("captured code = %q, want %q", captured.Code, connecterrors.ErrNotFound)
+	if captured.ErrorCode != connecterrors.ErrNotFound {
+		t.Errorf("captured code = %q, want %q", captured.ErrorCode, connecterrors.ErrNotFound)
 	}
 }
 
@@ -99,8 +99,8 @@ func TestStreamingErrorInterceptor(t *testing.T) {
 		t.Fatal("expected error to be returned")
 	}
 
-	if captured.Code != connecterrors.ErrNotFound {
-		t.Errorf("captured code = %q, want %q", captured.Code, connecterrors.ErrNotFound)
+	if captured.ErrorCode != connecterrors.ErrNotFound {
+		t.Errorf("captured code = %q, want %q", captured.ErrorCode, connecterrors.ErrNotFound)
 	}
 }
 

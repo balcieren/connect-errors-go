@@ -17,21 +17,21 @@ const (
 
 func init() {
 	cerr.Register(cerr.Error{
-		Code:        ErrInvalidCredentials,
+		ErrorCode:   ErrInvalidCredentials,
 		MessageTpl:  "Invalid credentials for user '{{email}}'",
-		ConnectCode: connect.CodeUnauthenticated,
+		StatusCode:  connect.CodeUnauthenticated,
 		Retryable:   false,
 	})
 	cerr.Register(cerr.Error{
-		Code:        ErrAccountLocked,
+		ErrorCode:   ErrAccountLocked,
 		MessageTpl:  "Account '{{email}}' is locked. Try again after {{unlock_at}}",
-		ConnectCode: connect.CodePermissionDenied,
+		StatusCode:  connect.CodePermissionDenied,
 		Retryable:   false,
 	})
 	cerr.Register(cerr.Error{
-		Code:        ErrTokenExpired,
+		ErrorCode:   ErrTokenExpired,
 		MessageTpl:  "Token expired at {{expired_at}}",
-		ConnectCode: connect.CodeUnauthenticated,
+		StatusCode:  connect.CodeUnauthenticated,
 		Retryable:   true,
 	})
 }

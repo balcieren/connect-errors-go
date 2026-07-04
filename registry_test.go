@@ -35,8 +35,8 @@ func TestRegistryDefaultEntries(t *testing.T) {
 			if !ok {
 				t.Fatalf("Lookup(%q) not found", code)
 			}
-			if e.Code != code {
-				t.Errorf("Code = %q, want %q", e.Code, code)
+			if e.ErrorCode != code {
+				t.Errorf("ErrorCode = %q, want %q", e.ErrorCode, code)
 			}
 			if e.MessageTpl == "" {
 				t.Errorf("MessageTpl is empty for %q", code)
@@ -47,8 +47,8 @@ func TestRegistryDefaultEntries(t *testing.T) {
 
 func TestRegistryConnectCodes(t *testing.T) {
 	tests := []struct {
-		code        connecterrors.ErrorCode
-		connectCode connect.Code
+		code       connecterrors.ErrorCode
+		statusCode connect.Code
 	}{
 		{connecterrors.ErrNotFound, connect.CodeNotFound},
 		{connecterrors.ErrInvalidArgument, connect.CodeInvalidArgument},
@@ -63,8 +63,8 @@ func TestRegistryConnectCodes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(string(tt.code), func(t *testing.T) {
 			e, _ := connecterrors.Lookup(tt.code)
-			if e.ConnectCode != tt.connectCode {
-				t.Errorf("ConnectCode = %v, want %v", e.ConnectCode, tt.connectCode)
+			if e.StatusCode != tt.statusCode {
+				t.Errorf("StatusCode = %v, want %v", e.StatusCode, tt.statusCode)
 			}
 		})
 	}
@@ -90,9 +90,9 @@ func TestRegistryRetryable(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 	connecterrors.Register(connecterrors.Error{
-		Code:        "ERROR_CUSTOM_REG",
-		MessageTpl:  "Custom: {{detail}}",
-		ConnectCode: connect.CodeInternal,
+		ErrorCode:  "ERROR_CUSTOM_REG",
+		MessageTpl: "Custom: {{detail}}",
+		StatusCode: connect.CodeInternal,
 	})
 	e, ok := connecterrors.Lookup(connecterrors.ErrorCode("ERROR_CUSTOM_REG"))
 	if !ok {
@@ -105,8 +105,8 @@ func TestRegister(t *testing.T) {
 
 func TestRegisterAll(t *testing.T) {
 	connecterrors.RegisterAll([]connecterrors.Error{
-		{Code: "ERROR_B1", MessageTpl: "B1", ConnectCode: connect.CodeInternal},
-		{Code: "ERROR_B2", MessageTpl: "B2", ConnectCode: connect.CodeNotFound},
+		{ErrorCode: "ERROR_B1", MessageTpl: "B1", StatusCode: connect.CodeInternal},
+		{ErrorCode: "ERROR_B2", MessageTpl: "B2", StatusCode: connect.CodeNotFound},
 	})
 	for _, code := range []connecterrors.ErrorCode{"ERROR_B1", "ERROR_B2"} {
 		if _, ok := connecterrors.Lookup(code); !ok {
@@ -132,14 +132,14 @@ func TestMustLookupPanic(t *testing.T) {
 
 func TestMustLookupSuccess(t *testing.T) {
 	e := connecterrors.MustLookup(connecterrors.ErrNotFound)
-	if e.Code != connecterrors.ErrNotFound {
-		t.Errorf("Code = %q", e.Code)
+	if e.ErrorCode != connecterrors.ErrNotFound {
+		t.Errorf("ErrorCode = %q", e.ErrorCode)
 	}
 }
 
 func TestRegisterOverwrite(t *testing.T) {
-	connecterrors.Register(connecterrors.Error{Code: "ERROR_OW", MessageTpl: "Original", ConnectCode: connect.CodeInternal})
-	connecterrors.Register(connecterrors.Error{Code: "ERROR_OW", MessageTpl: "Updated", ConnectCode: connect.CodeNotFound})
+	connecterrors.Register(connecterrors.Error{ErrorCode: "ERROR_OW", MessageTpl: "Original", StatusCode: connect.CodeInternal})
+	connecterrors.Register(connecterrors.Error{ErrorCode: "ERROR_OW", MessageTpl: "Updated", StatusCode: connect.CodeNotFound})
 	e, _ := connecterrors.Lookup(connecterrors.ErrorCode("ERROR_OW"))
 	if e.MessageTpl != "Updated" {
 		t.Errorf("MessageTpl = %q, want Updated", e.MessageTpl)
@@ -183,9 +183,9 @@ func TestConcurrentRegistration(t *testing.T) {
 			for j := 0; j < numOps; j++ {
 				code := fmt.Sprintf("ERR_CONCURRENT_%d_%d", id, j)
 				connecterrors.Register(connecterrors.Error{
-					Code:        connecterrors.ErrorCode(code),
-					MessageTpl:  "Concurrent error",
-					ConnectCode: connect.CodeInternal,
+					ErrorCode:  connecterrors.ErrorCode(code),
+					MessageTpl: "Concurrent error",
+					StatusCode: connect.CodeInternal,
 				})
 			}
 		}(i)

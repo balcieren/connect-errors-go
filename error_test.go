@@ -172,9 +172,9 @@ func TestErrorsIsErrorCodePlainError(t *testing.T) {
 
 func TestResetRegistry(t *testing.T) {
 	connecterrors.Register(connecterrors.Error{
-		Code:        "ERROR_TEMP",
+		ErrorCode:   "ERROR_TEMP",
 		MessageTpl:  "temp",
-		ConnectCode: connect.CodeInternal,
+		StatusCode:  connect.CodeInternal,
 	})
 	if _, ok := connecterrors.Lookup("ERROR_TEMP"); !ok {
 		t.Fatal("expected custom error to be registered")
@@ -312,11 +312,11 @@ func TestToProblemDetailsNonConnect(t *testing.T) {
 	}
 }
 
-func TestConnectCode(t *testing.T) {
-	if got := connecterrors.ConnectCode(connecterrors.ErrNotFound); got != connect.CodeNotFound {
+func TestStatusCode(t *testing.T) {
+	if got := connecterrors.StatusCode(connecterrors.ErrNotFound); got != connect.CodeNotFound {
 		t.Errorf("got %v, want CodeNotFound", got)
 	}
-	if got := connecterrors.ConnectCode(connecterrors.ErrorCode("NONEXISTENT")); got != connect.CodeInternal {
+	if got := connecterrors.StatusCode(connecterrors.ErrorCode("NONEXISTENT")); got != connect.CodeInternal {
 		t.Errorf("got %v, want CodeInternal", got)
 	}
 }
@@ -347,11 +347,11 @@ func TestFromError(t *testing.T) {
 	if !ok {
 		t.Fatal("expected FromError to find error")
 	}
-	if e.Code != connecterrors.ErrNotFound {
-		t.Errorf("Code = %q, want %q", e.Code, connecterrors.ErrNotFound)
+	if e.ErrorCode != connecterrors.ErrNotFound {
+		t.Errorf("ErrorCode = %q, want %q", e.ErrorCode, connecterrors.ErrNotFound)
 	}
-	if e.ConnectCode != connect.CodeNotFound {
-		t.Errorf("ConnectCode = %v, want CodeNotFound", e.ConnectCode)
+	if e.StatusCode != connect.CodeNotFound {
+		t.Errorf("StatusCode = %v, want CodeNotFound", e.StatusCode)
 	}
 }
 
@@ -628,9 +628,9 @@ func TestCodedErrorCodeNil(t *testing.T) {
 
 func TestNewValidateTemplateLogger(t *testing.T) {
 	connecterrors.Register(connecterrors.Error{
-		Code:        "ERROR_LOGGER_TEST",
+		ErrorCode:   "ERROR_LOGGER_TEST",
 		MessageTpl:  "User '{{id}}' not found",
-		ConnectCode: connect.CodeNotFound,
+		StatusCode:  connect.CodeNotFound,
 	})
 	defer connecterrors.ResetRegistry()
 
@@ -679,9 +679,9 @@ func TestNewWithMessageValidateTemplateLogger(t *testing.T) {
 
 func TestWrapValidateTemplateLogger(t *testing.T) {
 	connecterrors.Register(connecterrors.Error{
-		Code:        "ERROR_LOGGER_WRAP",
+		ErrorCode:   "ERROR_LOGGER_WRAP",
 		MessageTpl:  "User '{{id}}' not found",
-		ConnectCode: connect.CodeNotFound,
+		StatusCode:  connect.CodeNotFound,
 	})
 	defer connecterrors.ResetRegistry()
 
@@ -708,11 +708,11 @@ func TestWrapValidateTemplateLogger(t *testing.T) {
 
 func TestErrorLogger(t *testing.T) {
 	var loggedCode string
-	var loggedConnectCode connect.Code
+	var loggedStatusCode connect.Code
 	var loggedRetryable bool
-	connecterrors.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data connecterrors.M) {
+	connecterrors.SetErrorLogger(func(code string, statusCode connect.Code, retryable bool, data connecterrors.M) {
 		loggedCode = code
-		loggedConnectCode = connectCode
+		loggedStatusCode = statusCode
 		loggedRetryable = retryable
 	})
 	defer connecterrors.SetErrorLogger(nil)
@@ -722,8 +722,8 @@ func TestErrorLogger(t *testing.T) {
 	if loggedCode != string(connecterrors.ErrNotFound) {
 		t.Errorf("expected logger to be called with code ERROR_NOT_FOUND, got %q", loggedCode)
 	}
-	if loggedConnectCode != connect.CodeNotFound {
-		t.Errorf("expected connect code CodeNotFound, got %v", loggedConnectCode)
+	if loggedStatusCode != connect.CodeNotFound {
+		t.Errorf("expected status code CodeNotFound, got %v", loggedStatusCode)
 	}
 	if loggedRetryable != false {
 		t.Error("expected retryable to be false")
@@ -732,7 +732,7 @@ func TestErrorLogger(t *testing.T) {
 
 func TestErrorLoggerRetryable(t *testing.T) {
 	var loggedRetryable bool
-	connecterrors.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data connecterrors.M) {
+	connecterrors.SetErrorLogger(func(code string, statusCode connect.Code, retryable bool, data connecterrors.M) {
 		loggedRetryable = retryable
 	})
 	defer connecterrors.SetErrorLogger(nil)
@@ -827,8 +827,8 @@ func TestMatchError(t *testing.T) {
 	err := connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{"id": "42"})
 
 	result, ok := connecterrors.MatchError(err, []connecterrors.Matcher[string]{
-		{Code: connecterrors.ErrNotFound, Fn: func() string { return "not found" }},
-		{Code: connecterrors.ErrInvalidArgument, Fn: func() string { return "bad input" }},
+		{ErrorCode: connecterrors.ErrNotFound, Fn: func() string { return "not found" }},
+		{ErrorCode: connecterrors.ErrInvalidArgument, Fn: func() string { return "bad input" }},
 	})
 	if !ok {
 		t.Fatal("expected MatchError to find a match")
@@ -842,7 +842,7 @@ func TestMatchErrorNoMatch(t *testing.T) {
 	err := connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{"id": "42"})
 
 	_, ok := connecterrors.MatchError(err, []connecterrors.Matcher[string]{
-		{Code: connecterrors.ErrInternal, Fn: func() string { return "internal" }},
+		{ErrorCode: connecterrors.ErrInternal, Fn: func() string { return "internal" }},
 	})
 	if ok {
 		t.Error("expected no match")
@@ -851,7 +851,7 @@ func TestMatchErrorNoMatch(t *testing.T) {
 
 func TestMatchErrorNonConnect(t *testing.T) {
 	_, ok := connecterrors.MatchError(errors.New("plain"), []connecterrors.Matcher[string]{
-		{Code: connecterrors.ErrNotFound, Fn: func() string { return "not found" }},
+		{ErrorCode: connecterrors.ErrNotFound, Fn: func() string { return "not found" }},
 	})
 	if ok {
 		t.Error("expected no match for plain error")
@@ -863,8 +863,8 @@ func TestMatchErrorDeterministicOrder(t *testing.T) {
 
 	// First matcher should win even if multiple could match
 	result, ok := connecterrors.MatchError(err, []connecterrors.Matcher[string]{
-		{Code: connecterrors.ErrNotFound, Fn: func() string { return "first" }},
-		{Code: connecterrors.ErrNotFound, Fn: func() string { return "second" }},
+		{ErrorCode: connecterrors.ErrNotFound, Fn: func() string { return "first" }},
+		{ErrorCode: connecterrors.ErrNotFound, Fn: func() string { return "second" }},
 	})
 	if !ok {
 		t.Fatal("expected match")

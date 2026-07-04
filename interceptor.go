@@ -23,11 +23,11 @@ type ErrorInterceptorFunc func(ctx context.Context, connectErr *connect.Error, d
 //
 //	interceptor := cerr.ErrorInterceptor(func(ctx context.Context, err *connect.Error, def cerr.Error) {
 //	    slog.ErrorContext(ctx, "rpc error",
-//	        "code", def.Code,
-//	        "connect_code", def.ConnectCode,
+//	        "code", def.ErrorCode,
+//	        "status_code", def.StatusCode,
 //	        "retryable", def.Retryable,
 //	    )
-//	    metrics.IncrCounter("rpc.error", "code", def.Code)
+//	    metrics.IncrCounter("rpc.error", "code", def.ErrorCode)
 //	})
 //
 //	mux.Handle(userv1connect.NewUserServiceHandler(svc,
@@ -76,7 +76,7 @@ func (s StreamingHandlerInterceptorFunc) WrapStreamingHandler(next connect.Strea
 // Example:
 //
 //	interceptor := cerr.StreamingErrorInterceptor(func(ctx context.Context, err *connect.Error, def cerr.Error) {
-//	    slog.ErrorContext(ctx, "streaming rpc error", "code", def.Code)
+//	    slog.ErrorContext(ctx, "streaming rpc error", "code", def.ErrorCode)
 //	})
 //
 //	mux.Handle(userv1connect.NewUserServiceHandler(svc,

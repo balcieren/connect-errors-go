@@ -164,9 +164,9 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 	for _, e := range errors {
 		constName := "Err" + errorCodeToConstant(e.ErrorCode)
 		g.P("\t\t{")
-		g.P(fmt.Sprintf("\t\t\tCode:        %s,", constName))
+		g.P(fmt.Sprintf("\t\t\tErrorCode:   %s,", constName))
 		g.P(fmt.Sprintf("\t\t\tMessageTpl:  %q,", e.Message))
-		g.P(fmt.Sprintf("\t\t\tStatusCode: %s,", mapConnectCode(e.StatusCode)))
+		g.P(fmt.Sprintf("\t\t\tStatusCode:  %s,", mapConnectCode(e.StatusCode)))
 		g.P(fmt.Sprintf("\t\t\tRetryable:   %t,", e.Retryable))
 		if e.RetryDelayMs > 0 {
 			g.P(fmt.Sprintf("\t\t\tRetryDelay:  %d * time.Millisecond,", e.RetryDelayMs))

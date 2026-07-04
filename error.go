@@ -47,10 +47,10 @@ type M map[string]string
 //
 // Example:
 //
-//	cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
-//	    slog.Info("error created", "code", code, "connect_code", connectCode)
+//	cerr.SetErrorLogger(func(code string, statusCode connect.Code, retryable bool, data cerr.M) {
+//	    slog.Info("error created", "code", code, "status_code", statusCode)
 //	})
-type ErrorLogger func(code string, connectCode connect.Code, retryable bool, data M)
+type ErrorLogger func(code string, statusCode connect.Code, retryable bool, data M)
 
 // ValidationLogger is called when template validation fails.
 // Default: no-op (no logging, no panic).
@@ -85,16 +85,16 @@ func getValidationLogger() ValidationLogger {
 //
 //	// Zap integration
 //	logger, _ := zap.NewProduction()
-//	cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
+//	cerr.SetErrorLogger(func(code string, statusCode connect.Code, retryable bool, data cerr.M) {
 //	    logger.Info("error created",
 //	        zap.String("code", code),
-//	        zap.String("connect_code", connectCode.String()),
+//	        zap.String("status_code", statusCode.String()),
 //	        zap.Bool("retryable", retryable),
 //	    )
 //	})
 //
 //	// Sentry integration
-//	cerr.SetErrorLogger(func(code string, connectCode connect.Code, retryable bool, data cerr.M) {
+//	cerr.SetErrorLogger(func(code string, statusCode connect.Code, retryable bool, data cerr.M) {
 //	    sentry.WithScope(func(scope *sentry.Scope) {
 //	        scope.SetTag("error_code", code)
 //	        sentry.CaptureMessage("Error created: " + code)
@@ -143,7 +143,7 @@ func init() {
 		retryable: "x-retryable",
 	})
 	domainVal.Store("connecterrors")
-	errorLoggerVal.Store(ErrorLogger(func(code string, connectCode connect.Code, retryable bool, data M) {}))
+	errorLoggerVal.Store(ErrorLogger(func(code string, statusCode connect.Code, retryable bool, data M) {}))
 	validationLoggerVal.Store(ValidationLogger(func(code string, data M, err error) {}))
 }
 
@@ -336,14 +336,14 @@ func createError(code ErrorCoder, data M, retryDelay time.Duration, customMsg st
 	}
 
 	msg := FormatTemplate(tpl, data)
-	connectErr := connect.NewError(e.ConnectCode, &CodedError{code: codeStr, msg: msg})
+	connectErr := connect.NewError(e.StatusCode, &CodedError{code: codeStr, msg: msg})
 
 	effectiveDelay := e.RetryDelay
 	if retryDelay > 0 {
 		effectiveDelay = retryDelay
 	}
 	setMeta(connectErr, codeStr, e.Retryable, data, effectiveDelay, domainOverride)
-	getErrorLogger()(codeStr, e.ConnectCode, e.Retryable, data)
+	getErrorLogger()(codeStr, e.StatusCode, e.Retryable, data)
 
 	return connectErr
 }
@@ -442,9 +442,9 @@ func Wrap(code ErrorCoder, err error, data M) *connect.Error {
 
 	msg := FormatTemplate(e.MessageTpl, data)
 	wrapped := fmt.Errorf("%w: %w", &CodedError{code: codeStr, msg: msg}, err)
-	connectErr := connect.NewError(e.ConnectCode, wrapped)
+	connectErr := connect.NewError(e.StatusCode, wrapped)
 	setMeta(connectErr, codeStr, e.Retryable, data, e.RetryDelay, "")
-	getErrorLogger()(codeStr, e.ConnectCode, e.Retryable, data)
+	getErrorLogger()(codeStr, e.StatusCode, e.Retryable, data)
 
 	return connectErr
 }
@@ -479,14 +479,14 @@ func IsRetryable(codeOrErr any) bool {
 	return false
 }
 
-// ConnectCode returns the Connect status code for a registered error code.
+// StatusCode returns the Connect status code for a registered error code.
 // Returns connect.CodeInternal if the error code is not found.
-func ConnectCode(code ErrorCode) connect.Code {
+func StatusCode(code ErrorCode) connect.Code {
 	e, ok := Lookup(code)
 	if !ok {
 		return connect.CodeInternal
 	}
-	return e.ConnectCode
+	return e.StatusCode
 }
 
 // Newf creates a *connect.Error from a registered error code with a formatted message.
@@ -623,8 +623,8 @@ func MatchesError(err error, code ErrorCode) bool {
 
 // Matcher pairs an error code with a callback for MatchError.
 type Matcher[T any] struct {
-	Code ErrorCode
-	Fn   func() T
+	ErrorCode ErrorCode
+	Fn        func() T
 }
 
 // MatchError is a switch-like error matcher. It tries each matcher in order
@@ -635,8 +635,8 @@ type Matcher[T any] struct {
 // Example:
 //
 //	result, ok := connecterrors.MatchError[string](err, []connecterrors.Matcher[string]{
-//	    {Code: connecterrors.ErrNotFound, Fn: func() string { return "not found" }},
-//	    {Code: connecterrors.ErrInvalidArgument, Fn: func() string { return "bad input" }},
+//	    {ErrorCode: connecterrors.ErrNotFound, Fn: func() string { return "not found" }},
+//	    {ErrorCode: connecterrors.ErrInvalidArgument, Fn: func() string { return "bad input" }},
 //	})
 func MatchError[T any](err error, matchers []Matcher[T]) (T, bool) {
 	var zero T
@@ -646,7 +646,7 @@ func MatchError[T any](err error, matchers []Matcher[T]) (T, bool) {
 	}
 
 	for _, m := range matchers {
-		if MatchesError(connectErr, m.Code) {
+		if MatchesError(connectErr, m.ErrorCode) {
 			return m.Fn(), true
 		}
 	}
