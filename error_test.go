@@ -932,6 +932,35 @@ func TestIsRetryableNonRetryableConnectError(t *testing.T) {
 	}
 }
 
+func TestIsRetryableCode(t *testing.T) {
+	if !connecterrors.IsRetryableCode(connecterrors.ErrUnavailable) {
+		t.Error("Unavailable should be retryable")
+	}
+	if connecterrors.IsRetryableCode(connecterrors.ErrNotFound) {
+		t.Error("NotFound should not be retryable")
+	}
+	if connecterrors.IsRetryableCode(connecterrors.ErrorCode("NONEXISTENT")) {
+		t.Error("unknown should not be retryable")
+	}
+}
+
+func TestIsRetryableErr(t *testing.T) {
+	retryableErr := connecterrors.New(connecterrors.ErrUnavailable, nil)
+	if !connecterrors.IsRetryableErr(retryableErr) {
+		t.Error("Unavailable error should be retryable")
+	}
+
+	nonRetryableErr := connecterrors.New(connecterrors.ErrNotFound, nil)
+	if connecterrors.IsRetryableErr(nonRetryableErr) {
+		t.Error("NotFound error should not be retryable")
+	}
+
+	plainErr := errors.New("plain error")
+	if connecterrors.IsRetryableErr(plainErr) {
+		t.Error("plain error should not be retryable")
+	}
+}
+
 func TestConcurrentSetErrorLoggerAndNew(t *testing.T) {
 	done := make(chan struct{})
 

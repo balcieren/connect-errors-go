@@ -468,26 +468,28 @@ func fieldToExportedName(field string) string {
 	return result
 }
 
+// connectCodeMap maps google.rpc.Code numeric values to Connect code constants.
+var connectCodeMap = map[int]string{
+	1:  "connect.CodeCanceled",
+	2:  "connect.CodeUnknown",
+	3:  "connect.CodeInvalidArgument",
+	4:  "connect.CodeDeadlineExceeded",
+	5:  "connect.CodeNotFound",
+	6:  "connect.CodeAlreadyExists",
+	7:  "connect.CodePermissionDenied",
+	8:  "connect.CodeResourceExhausted",
+	9:  "connect.CodeFailedPrecondition",
+	10: "connect.CodeAborted",
+	11: "connect.CodeOutOfRange",
+	12: "connect.CodeUnimplemented",
+	13: "connect.CodeInternal",
+	14: "connect.CodeUnavailable",
+	15: "connect.CodeDataLoss",
+	16: "connect.CodeUnauthenticated",
+}
+
 func mapConnectCode(code int) string {
-	m := map[int]string{
-		1:  "connect.CodeCanceled",
-		2:  "connect.CodeUnknown",
-		3:  "connect.CodeInvalidArgument",
-		4:  "connect.CodeDeadlineExceeded",
-		5:  "connect.CodeNotFound",
-		6:  "connect.CodeAlreadyExists",
-		7:  "connect.CodePermissionDenied",
-		8:  "connect.CodeResourceExhausted",
-		9:  "connect.CodeFailedPrecondition",
-		10: "connect.CodeAborted",
-		11: "connect.CodeOutOfRange",
-		12: "connect.CodeUnimplemented",
-		13: "connect.CodeInternal",
-		14: "connect.CodeUnavailable",
-		15: "connect.CodeDataLoss",
-		16: "connect.CodeUnauthenticated",
-	}
-	if v, ok := m[code]; ok {
+	if v, ok := connectCodeMap[code]; ok {
 		return v
 	}
 	return "connect.CodeInternal"

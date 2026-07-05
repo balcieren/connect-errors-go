@@ -151,28 +151,12 @@ func init() {
 
 // GetHeaderKeys returns the current header key configuration for error codes and retryable flags.
 func GetHeaderKeys() headerKeys {
-	v := headerKeysVal.Load()
-	if v == nil {
-		return headerKeys{errorCode: "x-error-code", retryable: "x-retryable"}
-	}
-	hk, ok := v.(headerKeys)
-	if !ok {
-		return headerKeys{errorCode: "x-error-code", retryable: "x-retryable"}
-	}
-	return hk
+	return headerKeysVal.Load().(headerKeys)
 }
 
 // GetDomain returns the configured error domain used in ErrorInfo details.
 func GetDomain() string {
-	v := domainVal.Load()
-	if v == nil {
-		return "connecterrors"
-	}
-	domain, ok := v.(string)
-	if !ok {
-		return "connecterrors"
-	}
-	return domain
+	return domainVal.Load().(string)
 }
 
 // SetDomain configures the error domain used in google.rpc.ErrorInfo details.
@@ -447,32 +431,44 @@ func Wrap(code ErrorCoder, err error, data M) *connect.Error {
 	return connectErr
 }
 
-// IsRetryable checks whether an error code or error is marked as retryable.
-// Accepts either an ErrorCode (checks the Registry) or an error (checks
-// the x-retryable metadata header). Returns false for unknown codes/errors.
+// IsRetryableCode checks whether an error code is marked as retryable in the Registry.
+// Returns false if the error code is not found.
 //
 // Example:
 //
-//	connecterrors.IsRetryable(connecterrors.ErrUnavailable)          // true
-//	connecterrors.IsRetryable(connecterrors.New(cerr.ErrUnavailable, nil)) // true
+//	connecterrors.IsRetryableCode(connecterrors.ErrUnavailable) // true
+//	connecterrors.IsRetryableCode(connecterrors.ErrNotFound)    // false
+func IsRetryableCode(code ErrorCode) bool {
+	e, ok := Lookup(code)
+	return ok && e.Retryable
+}
+
+// IsRetryableErr checks whether an error carries retryable metadata.
+// It extracts the x-retryable header from the Connect error.
+// Returns false for non-Connect errors or errors without retryable metadata.
+//
+// Example:
+//
+//	err := connecterrors.New(connecterrors.ErrUnavailable, nil)
+//	connecterrors.IsRetryableErr(err) // true
+func IsRetryableErr(err error) bool {
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return false
+	}
+	hk := GetHeaderKeys()
+	return connectErr.Meta().Get(hk.retryable) == "true"
+}
+
+// IsRetryable checks whether an error code or error is marked as retryable.
+//
+// Deprecated: Use IsRetryableCode for ErrorCode values or IsRetryableErr for error values.
 func IsRetryable(codeOrErr any) bool {
 	switch v := codeOrErr.(type) {
 	case ErrorCode:
-		e, ok := Lookup(v)
-		if !ok {
-			return false
-		}
-		return e.Retryable
-	case *connect.Error:
-		hk := GetHeaderKeys()
-		return v.Meta().Get(hk.retryable) == "true"
+		return IsRetryableCode(v)
 	case error:
-		var connectErr *connect.Error
-		if !errors.As(v, &connectErr) {
-			return false
-		}
-		hk := GetHeaderKeys()
-		return connectErr.Meta().Get(hk.retryable) == "true"
+		return IsRetryableErr(v)
 	}
 	return false
 }
