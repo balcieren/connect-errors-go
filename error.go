@@ -101,9 +101,10 @@ func getValidationLogger() ValidationLogger {
 //	    })
 //	})
 func SetErrorLogger(fn ErrorLogger) {
-	if fn != nil {
-		errorLoggerVal.Store(fn)
+	if fn == nil {
+		fn = func(string, connect.Code, bool, M) {}
 	}
+	errorLoggerVal.Store(fn)
 }
 
 // SetValidationLogger configures a custom logger for template validation failures.
@@ -115,9 +116,10 @@ func SetErrorLogger(fn ErrorLogger) {
 //	    slog.Error("template validation failed", "code", code, "error", err)
 //	})
 func SetValidationLogger(fn ValidationLogger) {
-	if fn != nil {
-		validationLoggerVal.Store(fn)
+	if fn == nil {
+		fn = func(string, M, error) {}
 	}
+	validationLoggerVal.Store(fn)
 }
 
 type headerKeys struct {
@@ -236,12 +238,8 @@ func setMeta(connectErr *connect.Error, code string, retryable bool, data M, ret
 	}
 
 	if retryable {
-		delay := retryDelay
-		if delay == 0 {
-			delay = 0
-		}
 		retryInfo := &errdetails.RetryInfo{
-			RetryDelay: durationpb.New(delay),
+			RetryDelay: durationpb.New(retryDelay),
 		}
 		if detail, err := connect.NewErrorDetail(retryInfo); err == nil {
 			connectErr.AddDetail(detail)
