@@ -3,9 +3,9 @@ package examples
 import (
 	"context"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
-	cerr "github.com/balcieren/connect-errors-go"
+	cerr "github.com/balcieren/connect-errors-go/v2"
 )
 
 // Error codes for the Auth Service.
@@ -17,22 +17,22 @@ const (
 
 func init() {
 	cerr.Register(cerr.Error{
-		ErrorCode:   ErrInvalidCredentials,
-		MessageTpl:  "Invalid credentials for user '{{email}}'",
-		StatusCode:  connect.CodeUnauthenticated,
-		Retryable:   false,
+		ErrorCode:  ErrInvalidCredentials,
+		MessageTpl: "Invalid credentials for user '{{email}}'",
+		StatusCode: connect.CodeUnauthenticated,
+		Retryable:  false,
 	})
 	cerr.Register(cerr.Error{
-		ErrorCode:   ErrAccountLocked,
-		MessageTpl:  "Account '{{email}}' is locked. Try again after {{unlock_at}}",
-		StatusCode:  connect.CodePermissionDenied,
-		Retryable:   false,
+		ErrorCode:  ErrAccountLocked,
+		MessageTpl: "Account '{{email}}' is locked. Try again after {{unlock_at}}",
+		StatusCode: connect.CodePermissionDenied,
+		Retryable:  false,
 	})
 	cerr.Register(cerr.Error{
-		ErrorCode:   ErrTokenExpired,
-		MessageTpl:  "Token expired at {{expired_at}}",
-		StatusCode:  connect.CodeUnauthenticated,
-		Retryable:   true,
+		ErrorCode:  ErrTokenExpired,
+		MessageTpl: "Token expired at {{expired_at}}",
+		StatusCode: connect.CodeUnauthenticated,
+		Retryable:  true,
 	})
 }
 

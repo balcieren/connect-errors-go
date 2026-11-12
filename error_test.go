@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connectproto"
 
-	connecterrors "github.com/balcieren/connect-errors-go"
+	connecterrors "github.com/balcieren/connect-errors-go/v2"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -40,8 +41,8 @@ func TestNew(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.wantContain) {
 				t.Errorf("Error() = %q, should contain %q", err.Error(), tt.wantContain)
 			}
-			if got := err.Meta().Get("x-error-code"); got != string(tt.code) {
-				t.Errorf("x-error-code = %q, want %q", got, tt.code)
+			if got, _ := connecterrors.ExtractErrorCode(err); got != string(tt.code) {
+				t.Errorf("error code = %q, want %q", got, tt.code)
 			}
 		})
 	}
@@ -56,12 +57,12 @@ func TestNewUnknownCode(t *testing.T) {
 
 func TestNewRetryableMetadata(t *testing.T) {
 	err := connecterrors.New(connecterrors.ErrUnavailable, nil)
-	if got := err.Meta().Get("x-retryable"); got != "true" {
-		t.Errorf("Unavailable x-retryable = %q, want true", got)
+	if !connecterrors.IsRetryableErr(err) {
+		t.Error("Unavailable should be retryable")
 	}
 	err = connecterrors.New(connecterrors.ErrNotFound, nil)
-	if got := err.Meta().Get("x-retryable"); got != "false" {
-		t.Errorf("NotFound x-retryable = %q, want false", got)
+	if connecterrors.IsRetryableErr(err) {
+		t.Error("NotFound should not be retryable")
 	}
 }
 
@@ -102,8 +103,11 @@ func TestWrap(t *testing.T) {
 	if !strings.Contains(msg, "Resource not found") {
 		t.Errorf("missing template msg in %q", msg)
 	}
-	if !strings.Contains(msg, "connection refused") {
-		t.Errorf("missing wrapped error in %q", msg)
+	if strings.Contains(msg, "connection refused") {
+		t.Errorf("wrapped error leaked into the wire message %q", msg)
+	}
+	if !errors.Is(err, orig) {
+		t.Error("expected wrapped error to be reachable via errors.Is")
 	}
 }
 
@@ -172,9 +176,9 @@ func TestErrorsIsErrorCodePlainError(t *testing.T) {
 
 func TestResetRegistry(t *testing.T) {
 	connecterrors.Register(connecterrors.Error{
-		ErrorCode:   "ERROR_TEMP",
-		MessageTpl:  "temp",
-		StatusCode:  connect.CodeInternal,
+		ErrorCode:  "ERROR_TEMP",
+		MessageTpl: "temp",
+		StatusCode: connect.CodeInternal,
 	})
 	if _, ok := connecterrors.Lookup("ERROR_TEMP"); !ok {
 		t.Fatal("expected custom error to be registered")
@@ -220,11 +224,11 @@ func TestNewWithRetry(t *testing.T) {
 
 func TestWithFieldViolation(t *testing.T) {
 	err := connecterrors.New(connecterrors.ErrInvalidArgument, connecterrors.M{"reason": "bad"})
-	_ = connecterrors.WithFieldViolation(err, "email", "already registered")
+	err = connecterrors.WithFieldViolation(err, "email", "already registered")
 
 	found := false
 	for _, detail := range err.Details() {
-		val, err := detail.Value()
+		val, err := connectproto.UnmarshalErrorDetail(detail)
 		if err != nil {
 			continue
 		}
@@ -329,8 +333,8 @@ func TestNewf(t *testing.T) {
 	if !strings.Contains(err.Error(), `User "alice" not found in org acme`) {
 		t.Errorf("Error() = %q, should contain formatted message", err.Error())
 	}
-	if got := err.Meta().Get("x-error-code"); got != string(connecterrors.ErrNotFound) {
-		t.Errorf("x-error-code = %q, want %q", got, connecterrors.ErrNotFound)
+	if got, _ := connecterrors.ExtractErrorCode(err); got != string(connecterrors.ErrNotFound) {
+		t.Errorf("error code = %q, want %q", got, connecterrors.ErrNotFound)
 	}
 }
 
@@ -363,20 +367,18 @@ func TestFromErrorNil(t *testing.T) {
 }
 
 func TestFromErrorNoMeta(t *testing.T) {
-	connectErr := connect.NewError(connect.CodeInternal, errors.New("raw error"))
+	connectErr := connect.NewError(connect.CodeInternal, "raw error")
 	_, ok := connecterrors.FromError(connectErr)
 	if ok {
-		t.Error("expected false for error without x-error-code meta")
+		t.Error("expected false for error without a domain error code")
 	}
 }
-
-
 
 func TestCodedErrorAs(t *testing.T) {
 	connectErr := connecterrors.New(connecterrors.ErrNotFound, nil)
 
 	var coded *connecterrors.CodedError
-	if !errors.As(connectErr.Unwrap(), &coded) {
+	if !errors.As(connectErr, &coded) {
 		t.Fatal("expected errors.As to extract CodedError")
 	}
 	if coded.Code() != string(connecterrors.ErrNotFound) {
@@ -392,7 +394,7 @@ func TestWrapCodedError(t *testing.T) {
 	connectErr := connecterrors.Wrap(connecterrors.ErrInternal, orig, connecterrors.M{})
 
 	var coded *connecterrors.CodedError
-	if !errors.As(connectErr.Unwrap(), &coded) {
+	if !errors.As(connectErr, &coded) {
 		t.Fatal("expected errors.As to extract CodedError")
 	}
 	if coded.Code() != string(connecterrors.ErrInternal) {
@@ -400,7 +402,7 @@ func TestWrapCodedError(t *testing.T) {
 	}
 
 	// The original error should also be reachable via errors.Is
-	if !errors.Is(connectErr.Unwrap(), orig) {
+	if !errors.Is(connectErr, orig) {
 		t.Error("expected original error to be reachable via errors.Is")
 	}
 }
@@ -409,7 +411,7 @@ func TestNewfCodedError(t *testing.T) {
 	connectErr := connecterrors.Newf(connecterrors.ErrNotFound, "user %s gone", "alice")
 
 	var coded *connecterrors.CodedError
-	if !errors.As(connectErr.Unwrap(), &coded) {
+	if !errors.As(connectErr, &coded) {
 		t.Fatal("expected errors.As to extract CodedError from Newf result")
 	}
 	if coded.Code() != string(connecterrors.ErrNotFound) {
@@ -453,14 +455,12 @@ func TestExtractErrorCodeNil(t *testing.T) {
 }
 
 func TestExtractErrorCodeNoMeta(t *testing.T) {
-	connectErr := connect.NewError(connect.CodeInternal, errors.New("raw"))
+	connectErr := connect.NewError(connect.CodeInternal, "raw")
 	_, ok := connecterrors.ExtractErrorCode(connectErr)
 	if ok {
-		t.Error("expected false for error without x-error-code")
+		t.Error("expected false for error without a domain error code")
 	}
 }
-
-
 
 func TestNewWithNilCode(t *testing.T) {
 	// Passing nil should not panic, should return Internal error
@@ -470,29 +470,6 @@ func TestNewWithNilCode(t *testing.T) {
 	}
 }
 
-
-
-func TestSetHeaderKeys(t *testing.T) {
-	// Restore default keys after test
-	defer func() {
-		connecterrors.SetHeaderKeys("x-error-code", "x-retryable")
-	}()
-
-	connecterrors.SetHeaderKeys("x-custom-code", "x-custom-retry")
-
-	err := connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{"id": "123"})
-	meta := err.Meta()
-
-	if meta.Get("x-custom-code") != string(connecterrors.ErrNotFound) {
-		t.Errorf("expected x-custom-code header to be %s, got %s", connecterrors.ErrNotFound, meta.Get("x-custom-code"))
-	}
-
-	if meta.Get("x-error-code") != "" {
-		t.Errorf("expected x-error-code header to be empty, got %s", meta.Get("x-error-code"))
-	}
-}
-
-// isErrorCode simulates the generated IsXxx pattern for testing.
 func isErrorCode(err error, code connecterrors.ErrorCode) bool {
 	var connectErr *connect.Error
 	if !errors.As(err, &connectErr) {
@@ -530,16 +507,16 @@ func TestIsXxxPatternNonConnectError(t *testing.T) {
 }
 
 func TestIsXxxPatternRawConnectError(t *testing.T) {
-	// A raw *connect.Error without x-error-code metadata
-	rawErr := connect.NewError(connect.CodeNotFound, errors.New("not found"))
+	// A raw *connect.Error without a domain error code
+	rawErr := connect.NewError(connect.CodeNotFound, "not found")
 	if isErrorCode(rawErr, connecterrors.ErrNotFound) {
-		t.Error("expected false for connect error without x-error-code metadata")
+		t.Error("expected false for connect error without a domain error code")
 	}
 }
 func TestCodedErrorErrorCodeDeprecated(t *testing.T) {
 	connectErr := connecterrors.New(connecterrors.ErrNotFound, connecterrors.M{"id": "1"})
 	var coded *connecterrors.CodedError
-	if errors.As(connectErr.Unwrap(), &coded) {
+	if errors.As(connectErr, &coded) {
 		if coded.ErrorCode() != string(connecterrors.ErrNotFound) {
 			t.Errorf("ErrorCode() = %q, want %q", coded.ErrorCode(), connecterrors.ErrNotFound)
 		}
@@ -553,11 +530,11 @@ func TestWithMultipleDetails(t *testing.T) {
 	baseLen := len(connectErr.Details())
 
 	// Use real proto messages for details
-	d1, err := connect.NewErrorDetail(&emptypb.Empty{})
+	d1, err := connectproto.NewErrorDetail(&emptypb.Empty{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	d2, err := connect.NewErrorDetail(&emptypb.Empty{})
+	d2, err := connectproto.NewErrorDetail(&emptypb.Empty{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -628,9 +605,9 @@ func TestCodedErrorCodeNil(t *testing.T) {
 
 func TestNewValidateTemplateLogger(t *testing.T) {
 	connecterrors.Register(connecterrors.Error{
-		ErrorCode:   "ERROR_LOGGER_TEST",
-		MessageTpl:  "User '{{id}}' not found",
-		StatusCode:  connect.CodeNotFound,
+		ErrorCode:  "ERROR_LOGGER_TEST",
+		MessageTpl: "User '{{id}}' not found",
+		StatusCode: connect.CodeNotFound,
 	})
 	defer connecterrors.ResetRegistry()
 
@@ -679,9 +656,9 @@ func TestNewWithMessageValidateTemplateLogger(t *testing.T) {
 
 func TestWrapValidateTemplateLogger(t *testing.T) {
 	connecterrors.Register(connecterrors.Error{
-		ErrorCode:   "ERROR_LOGGER_WRAP",
-		MessageTpl:  "User '{{id}}' not found",
-		StatusCode:  connect.CodeNotFound,
+		ErrorCode:  "ERROR_LOGGER_WRAP",
+		MessageTpl: "User '{{id}}' not found",
+		StatusCode: connect.CodeNotFound,
 	})
 	defer connecterrors.ResetRegistry()
 
@@ -903,7 +880,7 @@ func TestErrorBuilderWithMessage(t *testing.T) {
 }
 
 func TestErrorBuilderWithDetail(t *testing.T) {
-	detail, derr := connect.NewErrorDetail(&emptypb.Empty{})
+	detail, derr := connectproto.NewErrorDetail(&emptypb.Empty{})
 	if derr != nil {
 		t.Fatal(derr)
 	}
@@ -980,33 +957,45 @@ func TestConcurrentSetErrorLoggerAndNew(t *testing.T) {
 	<-done
 }
 
-func TestConcurrentSetHeaderKeys(t *testing.T) {
-	defer connecterrors.SetHeaderKeys("x-error-code", "x-retryable")
+func TestWrapDoesNotLeakCause(t *testing.T) {
+	orig := errors.New("pq: password authentication failed for user admin")
+	connectErr := connecterrors.Wrap(connecterrors.ErrInternal, orig, nil)
 
-	done := make(chan struct{}, 2)
+	if strings.Contains(connectErr.Message(), "password") {
+		t.Errorf("Message() = %q, must not contain the wrapped error", connectErr.Message())
+	}
+	if !errors.Is(connectErr, orig) {
+		t.Error("expected wrapped error to stay reachable via errors.Is")
+	}
+	if !errors.Is(connectErr, connecterrors.ErrInternal) {
+		t.Error("expected errors.Is to match the error code sentinel")
+	}
+}
 
-	// Two goroutines writing concurrently
-	go func() {
-		defer func() { done <- struct{}{} }()
-		for i := 0; i < 1000; i++ {
-			connecterrors.SetHeaderKeys("x-app-code", "x-app-retry")
-		}
-	}()
-	go func() {
-		defer func() { done <- struct{}{} }()
-		for i := 0; i < 1000; i++ {
-			connecterrors.SetHeaderKeys("x-other-code", "x-other-retry")
-		}
-	}()
+// remoteCopy rebuilds err the way a client sees it after a round trip: the
+// code, message and details survive, the local cause does not.
+func remoteCopy(err *connect.Error) *connect.Error {
+	remote := connect.NewError(err.Code(), err.Message()).WithRemote()
+	for _, d := range err.Details() {
+		remote = remote.WithDetail(d)
+	}
+	return remote
+}
 
-	// Wait for both writers
-	<-done
-	<-done
+func TestRemoteErrorKeepsCodeAndRetryable(t *testing.T) {
+	remote := remoteCopy(connecterrors.New(connecterrors.ErrUnavailable, nil))
 
-	// Verify final state is one of the two valid options
-	hk := connecterrors.GetHeaderKeys()
-	ek := hk.ErrorCode()
-	if ek != "x-app-code" && ek != "x-other-code" {
-		t.Errorf("unexpected final errorCode key: %q", ek)
+	code, ok := connecterrors.ExtractErrorCode(remote)
+	if !ok || code != string(connecterrors.ErrUnavailable) {
+		t.Errorf("ExtractErrorCode() = %q, %v; want %q, true", code, ok, connecterrors.ErrUnavailable)
+	}
+	if !connecterrors.IsRetryableErr(remote) {
+		t.Error("expected remote Unavailable error to be retryable")
+	}
+	if !connecterrors.MatchesError(remote, connecterrors.ErrUnavailable) {
+		t.Error("expected MatchesError to match the remote error")
+	}
+	if def, ok := connecterrors.FromError(remote); !ok || def.ErrorCode != connecterrors.ErrUnavailable {
+		t.Errorf("FromError() = %v, %v; want ErrUnavailable", def.ErrorCode, ok)
 	}
 }

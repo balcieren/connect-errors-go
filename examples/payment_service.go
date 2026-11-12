@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
-	cerr "github.com/balcieren/connect-errors-go"
+	cerr "github.com/balcieren/connect-errors-go/v2"
 )
 
 // Error codes for the Payment Service.

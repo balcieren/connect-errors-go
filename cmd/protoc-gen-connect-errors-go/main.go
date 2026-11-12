@@ -53,11 +53,11 @@ func main() {
 }
 
 type errorDef struct {
-	ErrorCode     string
-	Message       string
-	StatusCode    int
-	Retryable     bool
-	RetryDelayMs  int64
+	ErrorCode    string
+	Message      string
+	StatusCode   int
+	Retryable    bool
+	RetryDelayMs int64
 }
 
 func generateFile(gen *protogen.Plugin, file *protogen.File) {
@@ -133,11 +133,9 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 	g.P("package ", file.GoPackageName)
 	g.P()
 	g.P("import (")
-	g.P(`	"errors"`)
+	g.P(`	"connectrpc.com/connect/v2"`)
 	g.P()
-	g.P(`	"connectrpc.com/connect"`)
-	g.P()
-	g.P(`	cerr "github.com/balcieren/connect-errors-go"`)
+	g.P(`	cerr "github.com/balcieren/connect-errors-go/v2"`)
 	g.P()
 	g.P(`	"google.golang.org/genproto/googleapis/rpc/errdetails"`)
 	if hasRetryDelay {
@@ -156,7 +154,6 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 	}
 	g.P(")")
 	g.P()
-
 
 	// Generate init function
 	g.P("func init() {")
@@ -220,27 +217,14 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 
 	// Generate client-side IsXxx error matchers
 	g.P("// Client-side error matchers for checking errors returned by Connect RPC calls.")
-	g.P("// They check both metadata headers and protobuf details for compatibility.")
+	g.P("// They read the google.rpc.ErrorInfo detail, so they work on both the server and the client.")
 	for _, e := range errors {
 		baseName := errorCodeToConstant(e.ErrorCode)
 		constName := "Err" + baseName
 		funcName := "Is" + baseName
 		g.P(fmt.Sprintf("// %s reports whether err is a %s error.", funcName, e.ErrorCode))
 		g.P(fmt.Sprintf("func %s(err error) bool {", funcName))
-		g.P("\tvar connectErr *connect.Error")
-		g.P("\tif !errors.As(err, &connectErr) {")
-		g.P("\t\treturn false")
-		g.P("\t}")
-		g.P("")
-		g.P("\t// 1. Check metadata headers (fast path)")
-		g.P("\tcode, ok := cerr.ExtractErrorCode(connectErr)")
-		g.P(fmt.Sprintf("\tif ok && code == string(%s) {", constName))
-		g.P("\t\treturn true")
-		g.P("\t}")
-		g.P("")
-		g.P("\t// 2. Check protobuf error details")
-		g.P("\tinfo, ok := cerr.ExtractErrorInfo(connectErr)")
-		g.P(fmt.Sprintf("\treturn ok && info.Reason == string(%s)", constName))
+		g.P(fmt.Sprintf("\treturn cerr.MatchesError(err, %s)", constName))
 		g.P("}")
 		g.P()
 	}
@@ -256,11 +240,7 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) {
 		g.P(fmt.Sprintf("\tif !%s(err) {", isFuncName))
 		g.P("\t\treturn nil")
 		g.P("\t}")
-		g.P("\tvar connectErr *connect.Error")
-		g.P("\tif !errors.As(err, &connectErr) {")
-		g.P("\t\treturn nil")
-		g.P("\t}")
-		g.P("\tinfo, ok := cerr.ExtractErrorInfo(connectErr)")
+		g.P("\tinfo, ok := cerr.ExtractErrorInfo(err)")
 		g.P("\tif !ok {")
 		g.P("\t\treturn nil")
 		g.P("\t}")

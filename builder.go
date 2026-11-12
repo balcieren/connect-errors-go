@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
 // contextExtractorFn is a configurable function that extracts metadata from a context.
@@ -73,13 +73,13 @@ func NewCtx(ctx context.Context, code ErrorCoder, data M) *connect.Error {
 //	    WithRetryDelay(5 * time.Second).
 //	    Build()
 type ErrorBuilder struct {
-	code         ErrorCoder
-	data         M
-	retryDelay   time.Duration
-	details      []*connect.ErrorDetail
-	violations   []fieldViolation
-	domain       string
-	customMsg    string
+	code       ErrorCoder
+	data       M
+	retryDelay time.Duration
+	details    []*connect.ErrorDetail
+	violations []fieldViolation
+	domain     string
+	customMsg  string
 }
 
 type fieldViolation struct {
@@ -138,13 +138,9 @@ func (b *ErrorBuilder) Build() *connect.Error {
 
 	// Add field violations
 	for _, v := range b.violations {
-		_ = WithFieldViolation(connectErr, v.field, v.description)
+		connectErr = WithFieldViolation(connectErr, v.field, v.description)
 	}
 
 	// Add extra details
-	for _, d := range b.details {
-		connectErr.AddDetail(d)
-	}
-
-	return connectErr
+	return WithDetails(connectErr, b.details...)
 }

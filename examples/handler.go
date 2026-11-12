@@ -5,7 +5,7 @@ package examples
 import (
 	"context"
 
-	cerr "github.com/balcieren/connect-errors-go"
+	cerr "github.com/balcieren/connect-errors-go/v2"
 )
 
 // UserRepository is a mock interface for demonstration purposes.

@@ -1,9 +1,9 @@
-module github.com/balcieren/connect-errors-go
+module github.com/balcieren/connect-errors-go/v2
 
-go 1.24.0
+go 1.26.0
 
-require connectrpc.com/connect v1.19.1
+require google.golang.org/protobuf v1.36.12
 
-require google.golang.org/protobuf v1.36.11
+require google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c
 
-require google.golang.org/genproto/googleapis/rpc v0.0.0-20241113202542-65e8d215514f
+require connectrpc.com/connect/v2 v2.0.2 // indirect

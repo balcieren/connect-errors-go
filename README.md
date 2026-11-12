@@ -7,7 +7,7 @@
 
 **Define errors in `.proto`, generate type-safe Go constructors, catch bugs at compile time.**
 
-A proto-first error handling package for [Connect RPC](https://connectrpc.com). Define your errors alongside your service definitions, run `buf generate`, and get fully typed constructor functions with struct parameters — no magic strings, no typos, no runtime surprises.
+A proto-first error handling package for [Connect RPC](https://connectrpc.com) (connect-go v2). Define your errors alongside your service definitions, run `buf generate`, and get fully typed constructor functions with struct parameters — no magic strings, no typos, no runtime surprises.
 
 ```protobuf
 // Define in your .proto file
@@ -21,11 +21,13 @@ option (errors.v1.rpc_error) = {
 ```go
 // Use the generated typed constructor
 return nil, userv1.NewErrUserNotFound(userv1.UserNotFoundParams{
-    Id: req.Msg.Id,  // ← IDE autocomplete, compile-time checked
+    Id: req.GetId(),  // ← IDE autocomplete, compile-time checked
 })
 ```
 
 > Wrong field name? **Won't compile.** Missing field? **IDE warns you.** Wrong error code? **Doesn't exist.**
+
+> **connect-go v1?** Use the v1 module, `github.com/balcieren/connect-errors-go` (v1.x). The `/v2` module targets `connectrpc.com/connect/v2`. See [Migrating from v1](#migrating-from-v1).
 
 ## Features
 
@@ -48,8 +50,8 @@ return nil, userv1.NewErrUserNotFound(userv1.UserNotFoundParams{
 ## Quick Start
 
 ```bash
-go get github.com/balcieren/connect-errors-go
-go install github.com/balcieren/connect-errors-go/cmd/protoc-gen-connect-errors-go@latest
+go get github.com/balcieren/connect-errors-go/v2
+go install github.com/balcieren/connect-errors-go/v2/cmd/protoc-gen-connect-errors-go@latest
 ```
 
 ---
@@ -149,8 +151,8 @@ This creates a `*_connect_errors.go` file:
 package userv1
 
 import (
-    "connectrpc.com/connect"
-    cerr "github.com/balcieren/connect-errors-go"
+    "connectrpc.com/connect/v2"
+    cerr "github.com/balcieren/connect-errors-go/v2"
 )
 
 // Typed error code constants.
@@ -198,12 +200,7 @@ func NewErrRateLimited() *connect.Error {
 // ── Client-side error matchers ──────────────────────────────────
 
 func IsUserNotFound(err error) bool {
-    var connectErr *connect.Error
-    if !errors.As(err, &connectErr) {
-        return false
-    }
-    code, ok := cerr.ExtractErrorCode(connectErr)
-    return ok && code == string(ErrUserNotFound)
+    return cerr.MatchesError(err, ErrUserNotFound)
 }
 
 // IsInvalidUserId, IsDeleteForbidden, IsEmailExists, IsRateLimited ...
@@ -214,28 +211,28 @@ func IsUserNotFound(err error) bool {
 ## Step 4: Use in Your Handlers
 
 ```go
-func (s *UserServer) GetUser(ctx context.Context, req *connect.Request[userv1.GetUserRequest]) (*connect.Response[userv1.User], error) {
-    if req.Msg.Id == "" {
+func (s *UserServer) GetUser(ctx context.Context, req *userv1.GetUserRequest) (*userv1.User, error) {
+    if req.GetId() == "" {
         return nil, userv1.NewErrInvalidUserId(userv1.InvalidUserIdParams{
-            Id: req.Msg.Id,
+            Id: req.GetId(),
         })
     }
 
-    user, err := s.db.FindUser(ctx, req.Msg.Id)
+    user, err := s.db.FindUser(ctx, req.GetId())
     if err != nil {
         return nil, userv1.NewErrUserNotFound(userv1.UserNotFoundParams{
-            Id: req.Msg.Id,
+            Id: req.GetId(),
         })
     }
 
-    return connect.NewResponse(user), nil
+    return user, nil
 }
 
-func (s *UserServer) CreateUser(ctx context.Context, req *connect.Request[userv1.CreateUserRequest]) (*connect.Response[userv1.User], error) {
-    exists, _ := s.db.EmailExists(ctx, req.Msg.Email)
+func (s *UserServer) CreateUser(ctx context.Context, req *userv1.CreateUserRequest) (*userv1.User, error) {
+    exists, _ := s.db.EmailExists(ctx, req.GetEmail())
     if exists {
         return nil, userv1.NewErrEmailExists(userv1.EmailExistsParams{
-            Email: req.Msg.Email,
+            Email: req.GetEmail(),
         })
     }
     // ...
@@ -248,7 +245,7 @@ The plugin generates `IsXxx(err error) bool` matchers for client-side error chec
 
 ```go
 // Client code — clean, type-safe error handling
-_, err := client.GetUser(ctx, connect.NewRequest(&userv1.GetUserRequest{Id: "123"}))
+_, err := client.GetUser(ctx, &userv1.GetUserRequest{Id: "123"})
 if err != nil {
     switch {
     case userv1.IsUserNotFound(err):
@@ -266,9 +263,9 @@ if err != nil {
 ```go
 connectErr := userv1.NewErrUserNotFound(userv1.UserNotFoundParams{Id: "123"})
 
-// Extract error details safely down to the core error
+// The CodedError is attached as the error's local cause
 var coded *cerr.CodedError
-if errors.As(connectErr.Unwrap(), &coded) {
+if errors.As(connectErr, &coded) {
     fmt.Println(coded.Code()) // "ERROR_USER_NOT_FOUND"
 }
 ```
@@ -295,9 +292,10 @@ interceptor := cerr.ErrorInterceptor(func(ctx context.Context, err *connect.Erro
     )
 })
 
-mux.Handle(userv1connect.NewUserServiceHandler(svc,
-    connect.WithInterceptors(interceptor),
-))
+// Connect v2 server interceptors wrap every RPC type: unary and streaming.
+server := connect.NewServer(interceptor)
+userv1connect.RegisterUserServiceHandler(server, svc)
+connecthttp.Mount(mux, server)
 ```
 
 ---
@@ -328,7 +326,7 @@ your-project/
 If you don't use proto-based definitions, you can define errors manually:
 
 ```go
-import cerr "github.com/balcieren/connect-errors-go"
+import cerr "github.com/balcieren/connect-errors-go/v2"
 
 // Define typed constants
 const ErrEmailTaken cerr.ErrorCode = "ERROR_EMAIL_TAKEN"
@@ -397,11 +395,10 @@ All `code` parameters accept the `ErrorCoder` interface — both `ErrorCode` con
 | `NewWithRetry(code, data, delay)`    | Create error with custom retry delay           |
 | `NewCtx(ctx, code, data)`            | Create error with context-extracted metadata   |
 | `NewBuilder(code, data)`             | Chainable builder for complex errors           |
-| `WithFieldViolation(err, field, msg)`| Add `google.rpc.BadRequest` FieldViolation     |
-| `WithDetails(err, details...)`       | Add protobuf details to an error               |
+| `WithFieldViolation(err, field, msg)`| Return a copy with a `google.rpc.BadRequest` FieldViolation |
+| `WithDetails(err, details...)`       | Return a copy with extra protobuf details      |
 | `SetDomain(domain)`                  | Configure global error domain                  |
 | `GetDomain()`                        | Get the current error domain                   |
-| `GetHeaderKeys()`                    | Get the current header key configuration       |
 | `SetContextExtractor(fn)`            | Configure context-to-metadata extraction       |
 | `SetErrorLogger(fn)`                 | Configure logger for all error creations       |
 | `SetValidationLogger(fn)`            | Configure logger for template validation fails |
@@ -417,9 +414,6 @@ cerr.FormatTemplate("User '{{id}}'", cerr.M{"id": "123"}) // → "User '123'"
 ### Configuration
 
 ```go
-// Customize metadata header keys
-cerr.SetHeaderKeys("x-custom-error-code", "x-custom-retryable")
-
 // Customize error domain (used in google.rpc.ErrorInfo)
 cerr.SetDomain("myapp")
 
@@ -528,26 +522,6 @@ type ProblemDetails struct {
 }
 ```
 
-### Streaming Interceptor
-
-```go
-// Streaming counterpart of ErrorInterceptor
-interceptor := cerr.StreamingErrorInterceptor(func(ctx context.Context, err *connect.Error, def cerr.Error) {
-    slog.ErrorContext(ctx, "streaming rpc error", "code", def.ErrorCode)
-})
-```
-
-`StreamingHandlerInterceptorFunc` implements `connect.Interceptor` and provides hooks for all RPC types:
-
-```go
-type StreamingHandlerInterceptorFunc func(connect.StreamingHandlerFunc) connect.StreamingHandlerFunc
-
-// Methods:
-// - WrapUnary(next connect.UnaryFunc) connect.UnaryFunc
-// - WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc
-// - WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc
-```
-
 ### errors.Is Support
 
 ```go
@@ -611,11 +585,11 @@ Pre-defined `ErrorCode` constants provided by the library:
 
 ## Concurrency Safety
 
-All global state (registry, domain, header keys, loggers, context extractor) is protected for concurrent use:
+All global state (registry, domain, loggers, context extractor) is protected for concurrent use:
 
 - **Registry**: Copy-on-write with `atomic.Value` for lock-free reads, `sync.Mutex` for writes
 - **Loggers**: `atomic.Value` for `SetErrorLogger()` / `SetValidationLogger()`
-- **Domain & Header Keys**: `atomic.Value` with mutex-protected read-modify-write for `SetHeaderKeys()`
+- **Domain**: `atomic.Value`
 - **Context Extractor**: `atomic.Value`
 - **Error Builder**: `WithDomain()` overrides domain per-error without mutating global state
 
@@ -625,19 +599,12 @@ All error creation functions (`New`, `Wrap`, `NewWithMessage`, etc.) are safe to
 
 ## Error Metadata & Details
 
-Every error includes both HTTP/gRPC metadata headers and Protobuf `connect.ErrorDetail` messages:
-
-### Headers
-
-| Header         | Example           |
-| -------------- | ----------------- |
-| `x-error-code` | `ERROR_NOT_FOUND` |
-| `x-retryable`  | `true` / `false`  |
+Every error carries its error code and retryable flag in Protobuf `connect.ErrorDetail` messages. Details travel over Connect, gRPC and gRPC-Web, so the same helpers work on the server and on the client:
 
 ### Protobuf Details
 
 - `google.rpc.ErrorInfo`: Attached to all errors. `Reason` contains the error code, `Domain` defaults to `"connecterrors"` (configurable via `SetDomain()`), and `Metadata` contains the template variables.
-- `google.rpc.RetryInfo`: Attached automatically when `Retryable` is true. Delay defaults to zero but can be set via `retry_delay_ms` in proto or `NewWithRetry()` at runtime.
+- `google.rpc.RetryInfo`: Attached automatically when `Retryable` is true; `IsRetryableErr()` checks for it. Delay defaults to zero but can be set via `retry_delay_ms` in proto or `NewWithRetry()` at runtime.
 - `google.rpc.BadRequest`: Attached via `WithFieldViolation()` for input validation failures.
 
 Use the provided extractors to safely parse details:
@@ -654,6 +621,16 @@ if retry, ok := cerr.ExtractRetryInfo(err); ok {
 ```
 
 ---
+
+## Migrating from v1
+
+v2 targets `connectrpc.com/connect/v2`. Update the import path to `github.com/balcieren/connect-errors-go/v2`, reinstall the plugin from `/v2/cmd/protoc-gen-connect-errors-go` and re-run `buf generate`. Behaviour changes:
+
+- **No metadata headers.** connect v2 errors carry no headers, so `x-error-code` / `x-retryable` and `SetHeaderKeys()` / `GetHeaderKeys()` are gone. The error code and retryable flag are read from the `google.rpc.ErrorInfo` / `google.rpc.RetryInfo` details, which every error already carried in v1.
+- **`Wrap` no longer leaks the wrapped error.** The client sees only the template message; the wrapped error is the local cause, still reachable with `errors.Is` / `errors.As` on the server.
+- **Errors are immutable.** `WithDetails()` and `WithFieldViolation()` return a new error: use the return value.
+- **One interceptor for every RPC type.** `ErrorInterceptor` returns a `connect.ServerInterceptor` that covers unary and streaming handlers; `StreamingErrorInterceptor` and `StreamingHandlerInterceptorFunc` are removed.
+- **`CodedError` is the cause.** Use `errors.As(err, &coded)` instead of `errors.As(err.Unwrap(), &coded)`.
 
 ## Contributing
 

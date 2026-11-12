@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
-	connecterrors "github.com/balcieren/connect-errors-go"
+	connecterrors "github.com/balcieren/connect-errors-go/v2"
 )
 
 func TestRegistryDefaultEntries(t *testing.T) {

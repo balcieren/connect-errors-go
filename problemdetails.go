@@ -3,7 +3,7 @@ package connecterrors
 import (
 	"errors"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
 // ProblemDetails represents an RFC 7807 (Problem Details for HTTP APIs) error response.

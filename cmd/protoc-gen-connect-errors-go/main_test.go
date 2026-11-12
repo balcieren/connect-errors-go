@@ -292,7 +292,7 @@ func generateTestPlugin(t *testing.T, defs []errorDef) string {
 
 	// Build CodeGeneratorRequest
 	req := &pluginpb.CodeGeneratorRequest{
-		ProtoFile: []*descriptorpb.FileDescriptorProto{fileDesc},
+		ProtoFile:      []*descriptorpb.FileDescriptorProto{fileDesc},
 		FileToGenerate: []string{"test/v1/service.proto"},
 	}
 
@@ -364,14 +364,14 @@ func TestGenerateFileProducesCompilableGo(t *testing.T) {
 
 	// Verify key elements are present in generated code
 	checks := []string{
-		"package",                                      // has a package declaration
-		"ErrUserNotFound",                             // generated constant
-		"ErrRateLimited",                              // generated constant
-		"NewErrUserNotFound",                          // generated constructor
-		"IsUserNotFound",                              // generated matcher
-		"ExtractUserNotFoundInfo",                     // generated extractor
-		`cerr.ErrorCode = "ERROR_USER_NOT_FOUND"`,     // constant value
-		"cerr.RegisterAll",                            // auto-registration
+		"package",                 // has a package declaration
+		"ErrUserNotFound",         // generated constant
+		"ErrRateLimited",          // generated constant
+		"NewErrUserNotFound",      // generated constructor
+		"IsUserNotFound",          // generated matcher
+		"ExtractUserNotFoundInfo", // generated extractor
+		`cerr.ErrorCode = "ERROR_USER_NOT_FOUND"`, // constant value
+		"cerr.RegisterAll",                        // auto-registration
 	}
 	for _, check := range checks {
 		if !strings.Contains(generated, check) {

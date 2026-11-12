@@ -6,8 +6,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connectproto"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -122,36 +124,13 @@ func SetValidationLogger(fn ValidationLogger) {
 	validationLoggerVal.Store(fn)
 }
 
-type headerKeys struct {
-	errorCode string
-	retryable string
-}
-
-// ErrorCodeKey returns the configured error code header key.
-func (h headerKeys) ErrorCode() string { return h.errorCode }
-
-// RetryableKey returns the configured retryable header key.
-func (h headerKeys) Retryable() string { return h.retryable }
-
-// headerKeysVal stores the current headerKeys atomically for lock-free reads.
-var headerKeysVal atomic.Value
-
 // domainVal stores the configured error domain atomically.
 var domainVal atomic.Value
 
 func init() {
-	headerKeysVal.Store(headerKeys{
-		errorCode: "x-error-code",
-		retryable: "x-retryable",
-	})
 	domainVal.Store("connecterrors")
 	errorLoggerVal.Store(ErrorLogger(func(code string, statusCode connect.Code, retryable bool, data M) {}))
 	validationLoggerVal.Store(ValidationLogger(func(code string, data M, err error) {}))
-}
-
-// GetHeaderKeys returns the current header key configuration for error codes and retryable flags.
-func GetHeaderKeys() headerKeys {
-	return headerKeysVal.Load().(headerKeys)
 }
 
 // GetDomain returns the configured error domain used in ErrorInfo details.
@@ -171,38 +150,14 @@ func SetDomain(domain string) {
 	}
 }
 
-// SetHeaderKeys reconfigures the metadata keys used for error codes and retryable flags.
-// This is safe for concurrent use.
-//
-// Example:
-//
-//	cerr.SetHeaderKeys("x-app-error-code", "x-app-retryable")
-func SetHeaderKeys(errorCodeKey, retryableKey string) {
-	writeMu.Lock()
-	defer writeMu.Unlock()
-	current := GetHeaderKeys()
-	if errorCodeKey != "" {
-		current.errorCode = errorCodeKey
-	}
-	if retryableKey != "" {
-		current.retryable = retryableKey
-	}
-	headerKeysVal.Store(current)
-}
-
-// setMeta attaches error code and retryable metadata to a Connect error.
-// It also attaches google.rpc.ErrorInfo and google.rpc.RetryInfo protobuf details.
+// withMeta returns a copy of connectErr carrying the google.rpc.ErrorInfo detail
+// (reason = error code, metadata = template data) and, for retryable errors, a
+// google.rpc.RetryInfo detail. Connect v2 errors carry no metadata headers, so
+// these details are the single source of truth for the error code and the
+// retryable flag on both the server and the client.
 // If retryDelay is non-zero, it is used in RetryInfo instead of the default zero delay.
 // If domainOverride is non-empty, it is used instead of the global domain.
-func setMeta(connectErr *connect.Error, code string, retryable bool, data M, retryDelay time.Duration, domainOverride string) {
-	hk := GetHeaderKeys()
-	connectErr.Meta().Set(hk.errorCode, code)
-	if retryable {
-		connectErr.Meta().Set(hk.retryable, "true")
-	} else {
-		connectErr.Meta().Set(hk.retryable, "false")
-	}
-
+func withMeta(connectErr *connect.Error, code string, retryable bool, data M, retryDelay time.Duration, domainOverride string) *connect.Error {
 	domain := domainOverride
 	if domain == "" {
 		domain = GetDomain()
@@ -217,82 +172,78 @@ func setMeta(connectErr *connect.Error, code string, retryable bool, data M, ret
 			info.Metadata[k] = v
 		}
 	}
-	if detail, err := connect.NewErrorDetail(info); err == nil {
-		connectErr.AddDetail(detail)
+	if detail, err := connectproto.NewErrorDetail(info); err == nil {
+		connectErr = connectErr.WithDetail(detail)
 	}
 
 	if retryable {
 		retryInfo := &errdetails.RetryInfo{
 			RetryDelay: durationpb.New(retryDelay),
 		}
-		if detail, err := connect.NewErrorDetail(retryInfo); err == nil {
-			connectErr.AddDetail(detail)
+		if detail, err := connectproto.NewErrorDetail(retryInfo); err == nil {
+			connectErr = connectErr.WithDetail(detail)
 		}
 	}
+	return connectErr
 }
 
-// FromError extracts error metadata from a *connect.Error's headers/trailers.
-// It reads the configured error code metadata (default "x-error-code") to look up
-// the corresponding Error definition in the Registry.
+// FromError resolves the Error definition of a *connect.Error from the Registry,
+// using the domain error code carried in its google.rpc.ErrorInfo detail.
 func FromError(connectErr *connect.Error) (Error, bool) {
-	if connectErr == nil {
+	code, ok := ExtractErrorCode(connectErr)
+	if !ok {
 		return Error{}, false
 	}
-
-	hk := GetHeaderKeys()
-	code := connectErr.Meta().Get(hk.errorCode)
-	if code == "" {
-		return Error{}, false
-	}
-
 	return Lookup(ErrorCode(code))
 }
 
-// ExtractErrorCode extracts the domain error code from a *connect.Error's metadata.
+// ExtractErrorCode extracts the domain error code from a *connect.Error.
+// The code is read from the google.rpc.ErrorInfo detail, so it works both for
+// errors created locally and for errors received from a remote server.
 func ExtractErrorCode(connectErr *connect.Error) (string, bool) {
 	if connectErr == nil {
 		return "", false
 	}
-	hk := GetHeaderKeys()
-	code := connectErr.Meta().Get(hk.errorCode)
-	if code == "" {
-		return "", false
+	if info, ok := findDetail[*errdetails.ErrorInfo](connectErr); ok && info.GetReason() != "" {
+		return info.GetReason(), true
 	}
-	return code, true
+	return "", false
 }
 
 // ExtractErrorInfo extracts a google.rpc.ErrorInfo detail from a connect.Error, if present.
 func ExtractErrorInfo(err error) (*errdetails.ErrorInfo, bool) {
-	var connectErr *connect.Error
-	if !errors.As(err, &connectErr) {
+	connectErr, ok := errors.AsType[*connect.Error](err)
+	if !ok {
 		return nil, false
 	}
-	for _, detail := range connectErr.Details() {
-		val, err := detail.Value()
-		if err == nil {
-			if info, ok := val.(*errdetails.ErrorInfo); ok {
-				return info, true
-			}
-		}
-	}
-	return nil, false
+	return findDetail[*errdetails.ErrorInfo](connectErr)
 }
 
 // ExtractRetryInfo extracts a google.rpc.RetryInfo detail from a connect.Error, if present.
 func ExtractRetryInfo(err error) (*errdetails.RetryInfo, bool) {
-	var connectErr *connect.Error
-	if !errors.As(err, &connectErr) {
+	connectErr, ok := errors.AsType[*connect.Error](err)
+	if !ok {
 		return nil, false
 	}
+	return findDetail[*errdetails.RetryInfo](connectErr)
+}
+
+// findDetail returns the first detail of connectErr that decodes to T.
+func findDetail[T proto.Message](connectErr *connect.Error) (T, bool) {
+	var zero T
+	if connectErr == nil {
+		return zero, false
+	}
 	for _, detail := range connectErr.Details() {
-		val, err := detail.Value()
-		if err == nil {
-			if info, ok := val.(*errdetails.RetryInfo); ok {
-				return info, true
-			}
+		val, err := connectproto.UnmarshalErrorDetail(detail)
+		if err != nil {
+			continue
+		}
+		if typed, ok := val.(T); ok {
+			return typed, true
 		}
 	}
-	return nil, false
+	return zero, false
 }
 
 // createError is the internal workhorse that all error creation functions delegate to.
@@ -302,8 +253,8 @@ func createError(code ErrorCoder, data M, retryDelay time.Duration, customMsg st
 	codeStr := extractCode(code)
 	e, ok := Lookup(ErrorCode(codeStr))
 	if !ok {
-		connectErr := connect.NewError(connect.CodeInternal, fmt.Errorf("unknown error code: %s", codeStr))
-		setMeta(connectErr, codeStr, false, data, 0, domainOverride)
+		connectErr := connect.Errorf(connect.CodeInternal, "unknown error code: %s", codeStr)
+		connectErr = withMeta(connectErr, codeStr, false, data, 0, domainOverride)
 		getErrorLogger()(codeStr, connect.CodeInternal, false, data)
 		return connectErr
 	}
@@ -318,13 +269,13 @@ func createError(code ErrorCoder, data M, retryDelay time.Duration, customMsg st
 	}
 
 	msg := FormatTemplate(tpl, data)
-	connectErr := connect.NewError(e.StatusCode, &CodedError{code: codeStr, msg: msg})
+	connectErr := connect.NewError(e.StatusCode, msg).WithCause(&CodedError{code: codeStr, msg: msg})
 
 	effectiveDelay := e.RetryDelay
 	if retryDelay > 0 {
 		effectiveDelay = retryDelay
 	}
-	setMeta(connectErr, codeStr, e.Retryable, data, effectiveDelay, domainOverride)
+	connectErr = withMeta(connectErr, codeStr, e.Retryable, data, effectiveDelay, domainOverride)
 	getErrorLogger()(codeStr, e.StatusCode, e.Retryable, data)
 
 	return connectErr
@@ -392,12 +343,14 @@ func NewWithMessage(code ErrorCoder, customMsg string, data M) *connect.Error {
 //
 //	return nil, connecterrors.FromCode(connect.CodeInternal, "unexpected database error")
 func FromCode(code connect.Code, msg string) *connect.Error {
-	return connect.NewError(code, errors.New(msg))
+	return connect.NewError(code, msg)
 }
 
 // Wrap creates a *connect.Error that wraps an underlying error with context from
-// the Registry. The original error message is preserved and the template message
-// is prepended. This is useful for adding user-facing context to internal errors.
+// the Registry. The client only sees the template message; the underlying error
+// is attached as a local cause, so errors.Is and errors.As still match it on the
+// server but its text never reaches the wire. This is useful for adding
+// user-facing context to internal errors without leaking them.
 //
 // The code parameter must implement ErrorCoder (e.g. ErrorCode or *CodedError).
 //
@@ -411,9 +364,8 @@ func Wrap(code ErrorCoder, err error, data M) *connect.Error {
 	codeStr := extractCode(code)
 	e, ok := Lookup(ErrorCode(codeStr))
 	if !ok {
-		wrapped := fmt.Errorf("unknown error code %s: %w", codeStr, err)
-		connectErr := connect.NewError(connect.CodeInternal, wrapped)
-		setMeta(connectErr, codeStr, false, data, 0, "")
+		connectErr := connect.Errorf(connect.CodeInternal, "unknown error code: %s", codeStr).WithCause(err)
+		connectErr = withMeta(connectErr, codeStr, false, data, 0, "")
 		getErrorLogger()(codeStr, connect.CodeInternal, false, data)
 		return connectErr
 	}
@@ -423,9 +375,10 @@ func Wrap(code ErrorCoder, err error, data M) *connect.Error {
 	}
 
 	msg := FormatTemplate(e.MessageTpl, data)
-	wrapped := fmt.Errorf("%w: %w", &CodedError{code: codeStr, msg: msg}, err)
-	connectErr := connect.NewError(e.StatusCode, wrapped)
-	setMeta(connectErr, codeStr, e.Retryable, data, e.RetryDelay, "")
+	connectErr := connect.NewError(e.StatusCode, msg).
+		WithCause(&CodedError{code: codeStr, msg: msg}).
+		WithCause(err)
+	connectErr = withMeta(connectErr, codeStr, e.Retryable, data, e.RetryDelay, "")
 	getErrorLogger()(codeStr, e.StatusCode, e.Retryable, data)
 
 	return connectErr
@@ -443,21 +396,18 @@ func IsRetryableCode(code ErrorCode) bool {
 	return ok && e.Retryable
 }
 
-// IsRetryableErr checks whether an error carries retryable metadata.
-// It extracts the x-retryable header from the Connect error.
-// Returns false for non-Connect errors or errors without retryable metadata.
+// IsRetryableErr checks whether an error is marked as retryable.
+// Retryable errors carry a google.rpc.RetryInfo detail, so this works both for
+// errors created locally and for errors received from a remote server.
+// Returns false for non-Connect errors or errors without a RetryInfo detail.
 //
 // Example:
 //
 //	err := connecterrors.New(connecterrors.ErrUnavailable, nil)
 //	connecterrors.IsRetryableErr(err) // true
 func IsRetryableErr(err error) bool {
-	var connectErr *connect.Error
-	if !errors.As(err, &connectErr) {
-		return false
-	}
-	hk := GetHeaderKeys()
-	return connectErr.Meta().Get(hk.retryable) == "true"
+	_, ok := ExtractRetryInfo(err)
+	return ok
 }
 
 // IsRetryable checks whether an error code or error is marked as retryable.
@@ -505,7 +455,7 @@ func Newf(code ErrorCoder, format string, args ...any) *connect.Error {
 //
 //	err := cerr.New(cerr.ErrNotFound, nil)
 //	var coded *cerr.CodedError
-//	if errors.As(err.Unwrap(), &coded) {
+//	if errors.As(err, &coded) {
 //	    fmt.Println(coded.Code()) // "ERROR_NOT_FOUND"
 //	}
 //
@@ -549,32 +499,30 @@ func (e *CodedError) Is(target error) bool {
 // Deprecated: Use Code() instead.
 func (e *CodedError) ErrorCode() string { return e.Code() }
 
-// WithDetails adds structured error details to an existing *connect.Error.
-// Details are protobuf Any messages that can carry domain-specific error information.
-// Returns the same error for method chaining.
+// WithDetails returns a copy of connectErr with structured error details appended.
+// Connect v2 errors are immutable, so use the returned error.
 //
 // Example:
 //
 //	err := cerr.New(cerr.ErrInvalidArgument, nil)
-//	detail, _ := connect.NewErrorDetail(fieldViolation)
-//	cerr.WithDetails(err, detail)
+//	detail, _ := connectproto.NewErrorDetail(fieldViolation)
+//	err = cerr.WithDetails(err, detail)
 func WithDetails(connectErr *connect.Error, details ...*connect.ErrorDetail) *connect.Error {
 	for _, d := range details {
-		if d != nil {
-			connectErr.AddDetail(d)
-		}
+		connectErr = connectErr.WithDetail(d)
 	}
 	return connectErr
 }
 
-// WithFieldViolation adds a google.rpc.BadRequest with a FieldViolation to a Connect error.
-// This is useful for communicating input validation failures to clients.
-// Returns the same error for method chaining.
+// WithFieldViolation returns a copy of connectErr with a google.rpc.BadRequest
+// FieldViolation detail appended. This is useful for communicating input
+// validation failures to clients. Connect v2 errors are immutable, so use the
+// returned error.
 //
 // Example:
 //
 //	err := cerr.New(cerr.ErrInvalidArgument, nil)
-//	cerr.WithFieldViolation(err, "email", "must be a valid email address")
+//	err = cerr.WithFieldViolation(err, "email", "must be a valid email address")
 func WithFieldViolation(connectErr *connect.Error, field, description string) *connect.Error {
 	violation := &errdetails.BadRequest_FieldViolation{
 		Field:       field,
@@ -583,15 +531,15 @@ func WithFieldViolation(connectErr *connect.Error, field, description string) *c
 	badRequest := &errdetails.BadRequest{
 		FieldViolations: []*errdetails.BadRequest_FieldViolation{violation},
 	}
-	if detail, err := connect.NewErrorDetail(badRequest); err == nil {
-		connectErr.AddDetail(detail)
+	if detail, err := connectproto.NewErrorDetail(badRequest); err == nil {
+		connectErr = connectErr.WithDetail(detail)
 	}
 	return connectErr
 }
 
 // MatchesError reports whether err is a Connect error matching the given error code.
-// It checks both the error code metadata header and the ErrorInfo protobuf detail,
-// making it resilient to transports that drop headers.
+// It checks the google.rpc.ErrorInfo detail, so it works both for errors created
+// locally and for errors received from a remote server.
 //
 // Example:
 //
@@ -599,20 +547,12 @@ func WithFieldViolation(connectErr *connect.Error, field, description string) *c
 //	    fmt.Println("not found")
 //	}
 func MatchesError(err error, code ErrorCode) bool {
-	var connectErr *connect.Error
-	if !errors.As(err, &connectErr) {
+	connectErr, ok := errors.AsType[*connect.Error](err)
+	if !ok {
 		return false
 	}
-
 	extracted, ok := ExtractErrorCode(connectErr)
-	if ok && extracted == string(code) {
-		return true
-	}
-
-	if info, ok := ExtractErrorInfo(connectErr); ok {
-		return info.Reason == string(code)
-	}
-	return false
+	return ok && extracted == string(code)
 }
 
 // Matcher pairs an error code with a callback for MatchError.
@@ -634,8 +574,8 @@ type Matcher[T any] struct {
 //	})
 func MatchError[T any](err error, matchers []Matcher[T]) (T, bool) {
 	var zero T
-	var connectErr *connect.Error
-	if !errors.As(err, &connectErr) {
+	connectErr, ok := errors.AsType[*connect.Error](err)
+	if !ok {
 		return zero, false
 	}
 
